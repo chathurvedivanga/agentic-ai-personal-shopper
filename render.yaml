@@ -8,6 +8,8 @@ services:
     startCommand: gunicorn app:app --worker-class gthread --threads 8 --timeout 120 --bind 0.0.0.0:$PORT
     healthCheckPath: /api/health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.4
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
@@ -15,7 +17,10 @@ services:
       - key: GEMINI_FALLBACK_MODELS
         value: gemini-2.0-flash,gemini-flash-latest
       - key: CORS_ORIGIN
-        sync: false
+        fromService:
+          type: web
+          name: ai-shopping-partner-web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: DB_PATH
         value: agentic_shopper.db
 
@@ -23,11 +28,16 @@ services:
     name: ai-shopping-partner-web
     runtime: static
     rootDir: client
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     staticPublishPath: dist
     envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
       - key: VITE_API_BASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: agentic-ai-personal-shopper-api
+          envVarKey: RENDER_EXTERNAL_URL
     routes:
       - type: rewrite
         source: /*

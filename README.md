@@ -131,6 +131,15 @@ Frontend environment variable:
 VITE_API_BASE_URL=https://your-backend-domain.onrender.com
 ```
 
+### Render Blueprint Notes
+
+If you deploy using the included `render.yaml`, Render auto-wires:
+
+- `VITE_API_BASE_URL` from the backend service's `RENDER_EXTERNAL_URL`
+- `CORS_ORIGIN` from the frontend service's `RENDER_EXTERNAL_URL`
+
+The backend also accepts comma-separated CORS origins and falls back to permissive CORS on Render if no origin is injected, which helps prevent first-deploy CORS failures.
+
 ### Important Free-Tier Limitation
 
 The current app stores saved chats in a local SQLite file. On a free deployment, that works for demos, but it is **not durable infrastructure**. If the backend is restarted or redeployed, saved chats can be lost because the database file lives on the service filesystem.

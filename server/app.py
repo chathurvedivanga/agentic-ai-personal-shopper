@@ -26,11 +26,29 @@ init_db()
 
 app = Flask(__name__)
 TITLE_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+
+
+def _resolve_cors_origins():
+    explicit = (os.getenv("CORS_ORIGINS") or os.getenv("CORS_ORIGIN") or "").strip()
+    if explicit:
+        parsed = [origin.strip().rstrip("/") for origin in explicit.split(",") if origin.strip()]
+        if not parsed:
+            return "*"
+        if "*" in parsed:
+            return "*"
+        return parsed if len(parsed) > 1 else parsed[0]
+
+    if os.getenv("RENDER", "").lower() == "true":
+        return "*"
+
+    return ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
 CORS(
     app,
     resources={
         r"/api/*": {
-            "origins": os.getenv("CORS_ORIGIN", "*"),
+            "origins": _resolve_cors_origins(),
         }
     },
 )
