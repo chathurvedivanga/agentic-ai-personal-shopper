@@ -42,6 +42,7 @@ Then add your Gemini key to `server/.env`:
 ```env
 GEMINI_API_KEY=your_google_ai_studio_key
 GEMINI_MODEL=gemini-2.5-flash
+DATABASE_URL=
 DB_PATH=agentic_shopper.db
 ```
 
@@ -113,7 +114,7 @@ GEMINI_API_KEY=your_google_ai_studio_key
 GEMINI_MODEL=gemini-2.5-flash
 GEMINI_FALLBACK_MODELS=gemini-2.0-flash,gemini-flash-latest
 CORS_ORIGIN=https://your-frontend-domain.onrender.com
-DB_PATH=agentic_shopper.db
+DATABASE_URL=postgresql://...
 ```
 
 ### Frontend Service
@@ -137,11 +138,13 @@ If you deploy using the included `render.yaml`, Render auto-wires:
 
 - `VITE_API_BASE_URL` from the backend service's `RENDER_EXTERNAL_URL`
 - `CORS_ORIGIN` from the frontend service's `RENDER_EXTERNAL_URL`
+- `DATABASE_URL` from the managed Render Postgres service
 
 The backend also accepts comma-separated CORS origins and falls back to permissive CORS on Render if no origin is injected, which helps prevent first-deploy CORS failures.
 
-### Important Free-Tier Limitation
+### Storage Model
 
-The current app stores saved chats in a local SQLite file. On a free deployment, that works for demos, but it is **not durable infrastructure**. If the backend is restarted or redeployed, saved chats can be lost because the database file lives on the service filesystem.
+- Local development uses SQLite by default through `DB_PATH=agentic_shopper.db`
+- Render production uses `DATABASE_URL` and stores chat history in Postgres
 
-If you want durable production-style chat history, the next step is migrating storage from SQLite to a hosted Postgres database.
+This lets you keep lightweight local setup while avoiding ephemeral filesystem issues in deployment.
