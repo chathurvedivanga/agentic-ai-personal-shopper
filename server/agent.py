@@ -48,7 +48,7 @@ DEFAULT_MODEL_CANDIDATES = [
     "gemini-2.0-flash",
     "gemini-flash-latest",
 ]
-TITLE_MAX_LENGTH = 48
+TITLE_MAX_LENGTH = 56
 MAX_HISTORY_MESSAGES = 10
 TOOL_NAME = "fetch_youtube_reviews"
 DIRECT_RESPONSE_CHUNK_SIZE = 220
@@ -96,6 +96,75 @@ WATCH_TYPE_PATTERN = re.compile(
 )
 _RESEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
 _RESEARCH_CACHE_LOCK = Lock()
+TITLE_STOPWORDS = {
+    "a",
+    "an",
+    "best",
+    "buy",
+    "can",
+    "find",
+    "for",
+    "help",
+    "i",
+    "im",
+    "i'm",
+    "in",
+    "india",
+    "indian",
+    "looking",
+    "me",
+    "need",
+    "please",
+    "recommend",
+    "search",
+    "show",
+    "suggest",
+    "the",
+    "to",
+    "want",
+    "what",
+    "which",
+    "with",
+}
+VAGUE_TITLE_TERMS = {
+    "chat",
+    "help",
+    "options",
+    "partner",
+    "personal",
+    "product",
+    "recommendations",
+    "review",
+    "reviews",
+    "shopper",
+    "shopping",
+    "suggestions",
+}
+TITLE_BRAND_CASE_MAP = {
+    "bgmi": "BGMI",
+    "flipkart": "Flipkart",
+    "g-shock": "G-Shock",
+    "iphone": "iPhone",
+    "iqoo": "iQOO",
+    "macbook": "MacBook",
+    "oneplus": "OnePlus",
+    "poco": "POCO",
+    "redmi": "Redmi",
+    "realme": "realme",
+}
+LEADING_TITLE_FILLER = re.compile(
+    r"^(?:can you|could you|help me|i need|i want to buy|i want|i am looking for|i'm looking for|looking for|please|recommend|suggest|show me|what is|which is|find me|best)\s+",
+    re.IGNORECASE,
+)
+COMPARE_PATTERN = re.compile(r"\b(?:vs\.?|versus|compare(?: with| to)?)\b", re.IGNORECASE)
+BUDGET_UNDER_PATTERN = re.compile(
+    r"\b(?:under|below|less than)\s*(?:rs\.?|₹|rupees?)?\s*(\d[\d,]*)\b",
+    re.IGNORECASE,
+)
+BUDGET_AROUND_PATTERN = re.compile(
+    r"\b(?:around|about|near)\s*(?:rs\.?|₹|rupees?)?\s*(\d[\d,]*)\b",
+    re.IGNORECASE,
+)
 
 
 def _build_model(
@@ -239,6 +308,247 @@ Return only the title.
             break
 
     return _fallback_title(seed_text)
+
+
+def _format_indian_number_for_title(value: int) -> str:
+    digits = str(abs(value))
+    if len(digits) <= 3:
+        grouped = digits
+    else:
+        grouped = digits[-3:]
+        digits = digits[:-3]
+        while digits:
+            grouped = f"{digits[-2:]},{grouped}"
+            digits = digits[:-2]
+    return f"-{grouped}" if value < 0 else grouped
+
+
+def _title_case_token_for_title(token: str) -> str:
+    stripped = token.strip()
+    if not stripped:
+        return token
+
+    lower = stripped.lower()
+    if lower in TITLE_BRAND_CASE_MAP:
+        return TITLE_BRAND_CASE_MAP[lower]
+    if stripped.startswith("Rs "):
+        return stripped
+    if any(char.isdigit() for char in stripped):
+        return stripped.upper() if len(stripped) <= 4 else stripped
+    return stripped.title()
+
+
+def _smart_title_case_for_title(text: str) -> str:
+    tokens = re.split(r"(\s+)", text)
+    return "".join(
+        token if token.isspace() else _title_case_token_for_title(token)
+        for token in tokens
+    ).strip()
+
+
+def _normalize_budget_phrase_for_title(raw_value: str) -> str:
+    digits = re.sub(r"[^\d]", "", raw_value or "")
+    if not digits:
+        return ""
+    return f"Rs {_format_indian_number_for_title(int(digits))}"
+
+
+def _extract_budget_phrase_for_title(text: str) -> str:
+    under_match = BUDGET_UNDER_PATTERN.search(text or "")
+    if under_match:
+        budget = _normalize_budget_phrase_for_title(under_match.group(1))
+        if budget:
+            return f"Under {budget}"
+
+    around_match = BUDGET_AROUND_PATTERN.search(text or "")
+    if around_match:
+        budget = _normalize_budget_phrase_for_title(around_match.group(1))
+        if budget:
+            return f"Around {budget}"
+
+    return ""
+
+
+def _extract_compare_title_for_title(seed_text: str) -> str:
+    parts = COMPARE_PATTERN.split(seed_text or "", maxsplit=1)
+    if len(parts) != 2:
+        return ""
+
+    left = re.sub(r"[^\w\s.+-]", " ", parts[0]).strip()
+    right = re.sub(r"[^\w\s.+-]", " ", parts[1]).strip()
+    left = LEADING_TITLE_FILLER.sub("", left).strip()
+    right = re.sub(r"\b(in india|india)\b", "", right, flags=re.IGNORECASE).strip()
+    if not left or not right:
+        return ""
+
+    combined = (
+        f"{_smart_title_case_for_title(left)} vs "
+        f"{_smart_title_case_for_title(right)}"
+    )
+    return combined[:TITLE_MAX_LENGTH].strip()
+
+
+def draft_chat_title(seed_text: str, assistant_text: str = "") -> str:
+    compare_title = _extract_compare_title_for_title(seed_text)
+    if compare_title:
+        return compare_title
+
+    base_text = seed_text or ""
+    assistant_lower = assistant_text.lower()
+    if assistant_lower and WATCH_AMBIGUITY_PATTERN.search(base_text) and WATCH_TYPE_PATTERN.search(
+        assistant_lower
+    ):
+        watch_type_match = WATCH_TYPE_PATTERN.search(assistant_lower)
+        if watch_type_match:
+            base_text = re.sub(
+                r"\bwatches?\b",
+                watch_type_match.group(1),
+                base_text,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+
+    budget_phrase = _extract_budget_phrase_for_title(base_text)
+    cleaned = re.sub(r"[^\w\s₹.+/-]", " ", base_text)
+    cleaned = LEADING_TITLE_FILLER.sub("", cleaned).strip()
+    cleaned = re.sub(
+        r"\b(in india|india|indian market)\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = BUDGET_UNDER_PATTERN.sub(" ", cleaned)
+    cleaned = BUDGET_AROUND_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(
+        r"(?:₹|rs\.?|rupees?)\s*\d[\d,]*",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    words = [
+        word
+        for word in cleaned.split()
+        if word.lower() not in TITLE_STOPWORDS and len(word) > 1
+    ]
+
+    if re.search(r"\bcompar", cleaned, flags=re.IGNORECASE) and words:
+        lead = _smart_title_case_for_title(" ".join(words[:2]))
+        if "chip" in cleaned.lower() and not re.search(r"\bchip\b", lead, flags=re.IGNORECASE):
+            lead = f"{lead} Chip"
+        title = f"{lead} Comparison"
+        return title[:TITLE_MAX_LENGTH].strip()
+
+    if not words:
+        return budget_phrase or "New chat"
+
+    lead_words = words[:4]
+    lead = _smart_title_case_for_title(" ".join(lead_words))
+    title = f"{lead} {budget_phrase}".strip() if budget_phrase else lead
+    title = re.sub(r"\s+", " ", title).strip()
+    return title[:TITLE_MAX_LENGTH].strip() or "New chat"
+
+
+def _is_vague_generated_title(title: str) -> bool:
+    normalized_words = [word.lower() for word in re.findall(r"[a-zA-Z0-9+/-]+", title)]
+    if not normalized_words:
+        return True
+    if len(normalized_words) == 1 and normalized_words[0] in VAGUE_TITLE_TERMS:
+        return True
+    if all(word in VAGUE_TITLE_TERMS for word in normalized_words):
+        return True
+    return False
+
+
+def _clean_generated_chat_title(
+    raw_text: str,
+    seed_text: str,
+    assistant_text: str = "",
+) -> str:
+    title = raw_text.strip().splitlines()[0].strip()
+    title = title.strip("`\"'*-: ")
+    title = re.sub(r"\s+", " ", title)
+    title = title.replace("₹", "Rs ")
+    title = _smart_title_case_for_title(title)
+    fallback = draft_chat_title(seed_text, assistant_text)
+    if not title or _is_vague_generated_title(title):
+        return fallback
+    return title[:TITLE_MAX_LENGTH].strip() or fallback
+
+
+def generate_chat_title(
+    seed_text: str,
+    assistant_text: str = "",
+    source_titles: List[str] | None = None,
+) -> str:
+    fallback = draft_chat_title(seed_text, assistant_text)
+    source_titles = source_titles or []
+    assistant_excerpt = re.sub(r"\s+", " ", assistant_text).strip()[:700]
+    source_block = "\n".join(f"- {title}" for title in source_titles[:4]) or "- None"
+    prompt = f"""
+Create a short, specific title for this shopping conversation sidebar.
+
+Requirements:
+- 3 to 7 words
+- title case
+- no quotes
+- no punctuation unless needed for a product name
+- focus on the actual buyer intent, product category, and budget if present
+- prefer specific category phrases over vague labels like Shopping, Help, Recommendations, or Chat
+- if this is a comparison, use a title like "Product A vs Product B"
+- if a budget exists, include it in the title
+- avoid filler words like recommend, suggest, help, best, and buy
+
+Examples:
+- User: Recommend a gaming phone under Rs 40000 in India
+  Title: Gaming Phones Under Rs 40,000
+- User: Best smartwatches under 5000
+  Title: Smartwatches Under Rs 5,000
+- User: MacBook chip comparison for college
+  Title: MacBook Chip Comparison
+- User: Robot vacuum for pet hair in India
+  Title: Robot Vacuums for Pet Hair
+
+User message:
+{seed_text}
+
+Assistant answer excerpt:
+{assistant_excerpt or "None"}
+
+YouTube review titles:
+{source_block}
+
+Fallback candidate:
+{fallback}
+
+Return only the title.
+""".strip()
+
+    for model_name in _candidate_models():
+        try:
+            model = _build_model(
+                model_name,
+                system_instruction="You create concise and specific shopping chat titles.",
+            )
+            response = model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.1,
+                    "max_output_tokens": 20,
+                },
+            )
+            return _clean_generated_chat_title(
+                getattr(response, "text", "") or "",
+                seed_text,
+                assistant_text,
+            )
+        except Exception as exc:
+            if _is_model_not_found(exc) or _is_quota_exhausted(exc):
+                continue
+            break
+
+    return fallback
 
 
 def _format_sources(research_items: List[Dict[str, Any]]) -> List[Dict[str, str]]:

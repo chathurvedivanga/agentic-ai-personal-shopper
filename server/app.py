@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from flask import Flask, Response, g, jsonify, request, stream_with_context
 from flask_cors import CORS
 
-from agent import generate_chat_title, stream_shopper_reply
+from agent import draft_chat_title, generate_chat_title, stream_shopper_reply
 from storage import (
     add_message,
     count_user_messages,
@@ -84,9 +84,19 @@ def _cookie_settings() -> dict:
     }
 
 
-def _schedule_title_generation(session_id: str, owner_id: str, seed_message: str) -> None:
+def _schedule_title_generation(
+    session_id: str,
+    owner_id: str,
+    seed_message: str,
+    assistant_text: str = "",
+    source_titles: list[str] | None = None,
+) -> None:
     def task():
-        title = generate_chat_title(seed_message)
+        title = generate_chat_title(
+            seed_message,
+            assistant_text=assistant_text,
+            source_titles=source_titles or [],
+        )
         update_session_title(session_id, owner_id, title)
 
     TITLE_EXECUTOR.submit(task)
@@ -172,13 +182,33 @@ def chat():
         session_id = session["id"]
 
     add_message(session_id, "user", message)
-    if count_user_messages(session_id) == 1:
-        _schedule_title_generation(session_id, g.viewer_id, message)
+    is_first_user_message = count_user_messages(session_id) == 1
+    if is_first_user_message:
+        update_session_title(session_id, g.viewer_id, draft_chat_title(message))
 
     def generate():
         assistant_parts: list[str] = []
         assistant_sources: list[dict] = []
         assistant_saved = False
+        title_generation_scheduled = False
+
+        def maybe_schedule_title_generation(assistant_text: str) -> None:
+            nonlocal title_generation_scheduled
+            if not is_first_user_message or title_generation_scheduled or not assistant_text:
+                return
+            source_titles = [
+                source.get("title", "")
+                for source in assistant_sources[:4]
+                if source.get("title")
+            ]
+            _schedule_title_generation(
+                session_id,
+                g.viewer_id,
+                message,
+                assistant_text=assistant_text,
+                source_titles=source_titles,
+            )
+            title_generation_scheduled = True
 
         yield _sse("session", {"session": get_session_summary(session_id, g.viewer_id)})
 
@@ -198,6 +228,7 @@ def chat():
                             sources=assistant_sources,
                         )
                         assistant_saved = True
+                        maybe_schedule_title_generation(assistant_text)
                     event["data"]["session"] = get_session_summary(session_id, g.viewer_id)
                 yield _sse(event["event"], event["data"])
         except Exception as exc:  # pragma: no cover - final guard rail
@@ -218,6 +249,7 @@ def chat():
                     assistant_text,
                     sources=assistant_sources,
                 )
+                maybe_schedule_title_generation(assistant_text)
 
     headers = {
         "Cache-Control": "no-cache",
