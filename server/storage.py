@@ -19,6 +19,7 @@ from sqlalchemy import (
     create_engine,
     delete,
     func,
+    inspect as sa_inspect,
     insert,
     select,
     text,
@@ -38,6 +39,7 @@ sessions = Table(
     "sessions",
     metadata,
     Column("id", String(64), primary_key=True),
+    Column("owner_id", String(64), nullable=True),
     Column("title", String(255), nullable=False),
     Column("title_status", String(32), nullable=False, server_default=text("'pending'")),
     Column("created_at", Text, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
@@ -143,6 +145,7 @@ def init_db() -> None:
     for attempt in range(1, INIT_DB_MAX_ATTEMPTS + 1):
         try:
             metadata.create_all(engine)
+            _ensure_schema_updates(engine)
             return
         except SQLAlchemyError as exc:
             last_error = exc
@@ -153,32 +156,41 @@ def init_db() -> None:
     raise RuntimeError("Failed to initialize the database.") from last_error
 
 
-def create_session(title: str = DEFAULT_TITLE) -> Dict[str, Any]:
+def create_session(owner_id: str, title: str = DEFAULT_TITLE) -> Dict[str, Any]:
     session_id = str(uuid.uuid4())
     with _engine().begin() as connection:
         connection.execute(
-            insert(sessions).values(id=session_id, title=title, title_status="pending")
+            insert(sessions).values(
+                id=session_id,
+                owner_id=owner_id,
+                title=title,
+                title_status="pending",
+            )
         )
 
-    session = get_session_summary(session_id)
+    session = get_session_summary(session_id, owner_id)
     if session is None:  # pragma: no cover - defensive guard
         raise RuntimeError("Failed to create session.")
     return session
 
 
-def get_session_summary(session_id: str) -> Optional[Dict[str, Any]]:
+def get_session_summary(session_id: str, owner_id: str) -> Optional[Dict[str, Any]]:
     with _engine().connect() as connection:
         row = (
             connection.execute(
                 select(
                     sessions.c.id,
+                    sessions.c.owner_id,
                     sessions.c.title,
                     sessions.c.title_status,
                     sessions.c.created_at,
                     sessions.c.updated_at,
                     _message_count_subquery().label("message_count"),
                     _last_message_preview_subquery().label("last_message_preview"),
-                ).where(sessions.c.id == session_id)
+                ).where(
+                    sessions.c.id == session_id,
+                    sessions.c.owner_id == owner_id,
+                )
             )
             .mappings()
             .first()
@@ -187,19 +199,22 @@ def get_session_summary(session_id: str) -> Optional[Dict[str, Any]]:
     return _row_to_session(row) if row else None
 
 
-def list_sessions() -> List[Dict[str, Any]]:
+def list_sessions(owner_id: str) -> List[Dict[str, Any]]:
     with _engine().connect() as connection:
         rows = (
             connection.execute(
                 select(
                     sessions.c.id,
+                    sessions.c.owner_id,
                     sessions.c.title,
                     sessions.c.title_status,
                     sessions.c.created_at,
                     sessions.c.updated_at,
                     _message_count_subquery().label("message_count"),
                     _last_message_preview_subquery().label("last_message_preview"),
-                ).order_by(sessions.c.updated_at.desc(), sessions.c.created_at.desc())
+                )
+                .where(sessions.c.owner_id == owner_id)
+                .order_by(sessions.c.updated_at.desc(), sessions.c.created_at.desc())
             )
             .mappings()
             .all()
@@ -208,8 +223,8 @@ def list_sessions() -> List[Dict[str, Any]]:
     return [_row_to_session(row) for row in rows]
 
 
-def get_session_with_messages(session_id: str) -> Optional[Dict[str, Any]]:
-    session = get_session_summary(session_id)
+def get_session_with_messages(session_id: str, owner_id: str) -> Optional[Dict[str, Any]]:
+    session = get_session_summary(session_id, owner_id)
     if session is None:
         return None
 
@@ -287,12 +302,15 @@ def count_user_messages(session_id: str) -> int:
     return int(total or 0)
 
 
-def update_session_title(session_id: str, title: str) -> None:
+def update_session_title(session_id: str, owner_id: str, title: str) -> None:
     cleaned_title = " ".join(title.strip().split())[:80] or DEFAULT_TITLE
     with _engine().begin() as connection:
         connection.execute(
             update(sessions)
-            .where(sessions.c.id == session_id)
+            .where(
+                sessions.c.id == session_id,
+                sessions.c.owner_id == owner_id,
+            )
             .values(
                 title=cleaned_title,
                 title_status="ready",
@@ -301,16 +319,42 @@ def update_session_title(session_id: str, title: str) -> None:
         )
 
 
-def delete_session(session_id: str) -> bool:
+def delete_session(session_id: str, owner_id: str) -> bool:
     with _engine().begin() as connection:
-        result = connection.execute(delete(sessions).where(sessions.c.id == session_id))
+        result = connection.execute(
+            delete(sessions).where(
+                sessions.c.id == session_id,
+                sessions.c.owner_id == owner_id,
+            )
+        )
     return result.rowcount > 0
 
 
-def mark_title_ready(session_id: str) -> None:
+def mark_title_ready(session_id: str, owner_id: str) -> None:
     with _engine().begin() as connection:
         connection.execute(
-            update(sessions).where(sessions.c.id == session_id).values(title_status="ready")
+            update(sessions)
+            .where(
+                sessions.c.id == session_id,
+                sessions.c.owner_id == owner_id,
+            )
+            .values(title_status="ready")
+        )
+
+
+def _ensure_schema_updates(engine: Engine) -> None:
+    inspector = sa_inspect(engine)
+    session_columns = {column["name"] for column in inspector.get_columns("sessions")}
+
+    with engine.begin() as connection:
+        if "owner_id" not in session_columns:
+            connection.execute(text("ALTER TABLE sessions ADD COLUMN owner_id VARCHAR(64)"))
+
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at "
+                "ON sessions(owner_id, updated_at)"
+            )
         )
 
 

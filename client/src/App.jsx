@@ -77,7 +77,10 @@ function upsertSession(currentSessions, nextSession) {
 }
 
 async function fetchJson(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, options);
+  const response = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    ...options
+  });
   if (!response.ok) {
     const details = await response.text();
     throw new Error(details || "Request failed.");
@@ -315,6 +318,7 @@ export default function App() {
           "Content-Type": "application/json",
           Accept: "text/event-stream"
         },
+        credentials: "include",
         body: JSON.stringify({
           message: text,
           history: requestHistory,
@@ -464,7 +468,8 @@ export default function App() {
 
     try {
       const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
-        method: "DELETE"
+        method: "DELETE",
+        credentials: "include"
       });
 
       if (!response.ok) {
@@ -507,6 +512,7 @@ export default function App() {
         headers: {
           "Content-Type": "application/json"
         },
+        credentials: "include",
         body: JSON.stringify({ title })
       });
 

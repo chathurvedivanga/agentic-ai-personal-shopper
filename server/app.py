@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, g, jsonify, request, stream_with_context
 from flask_cors import CORS
 
 from agent import generate_chat_title, stream_shopper_reply
@@ -26,20 +27,21 @@ init_db()
 
 app = Flask(__name__)
 TITLE_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+VIEWER_COOKIE_NAME = "shopper_viewer_id"
+VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 
 def _resolve_cors_origins():
     explicit = (os.getenv("CORS_ORIGINS") or os.getenv("CORS_ORIGIN") or "").strip()
     if explicit:
-        parsed = [origin.strip().rstrip("/") for origin in explicit.split(",") if origin.strip()]
+        parsed = [
+            origin.strip().rstrip("/")
+            for origin in explicit.split(",")
+            if origin.strip() and origin.strip() != "*"
+        ]
         if not parsed:
-            return "*"
-        if "*" in parsed:
-            return "*"
+            return ["http://localhost:5173", "http://127.0.0.1:5173"]
         return parsed if len(parsed) > 1 else parsed[0]
-
-    if os.getenv("RENDER", "").lower() == "true":
-        return "*"
 
     return ["http://localhost:5173", "http://127.0.0.1:5173"]
 
@@ -49,6 +51,7 @@ CORS(
     resources={
         r"/api/*": {
             "origins": _resolve_cors_origins(),
+            "supports_credentials": True,
         }
     },
 )
@@ -59,12 +62,50 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-def _schedule_title_generation(session_id: str, seed_message: str) -> None:
+def _normalize_viewer_id(raw_value: str) -> str:
+    candidate = (raw_value or "").strip()
+    if not candidate:
+        return str(uuid.uuid4())
+
+    try:
+        return str(uuid.UUID(candidate))
+    except ValueError:
+        return str(uuid.uuid4())
+
+
+def _cookie_settings() -> dict:
+    secure = os.getenv("RENDER", "").lower() == "true" or request.is_secure
+    return {
+        "httponly": True,
+        "max_age": VIEWER_COOKIE_MAX_AGE,
+        "path": "/",
+        "samesite": "None" if secure else "Lax",
+        "secure": secure,
+    }
+
+
+def _schedule_title_generation(session_id: str, owner_id: str, seed_message: str) -> None:
     def task():
         title = generate_chat_title(seed_message)
-        update_session_title(session_id, title)
+        update_session_title(session_id, owner_id, title)
 
     TITLE_EXECUTOR.submit(task)
+
+
+@app.before_request
+def ensure_viewer_cookie():
+    current_value = request.cookies.get(VIEWER_COOKIE_NAME, "")
+    normalized = _normalize_viewer_id(current_value)
+    g.viewer_id = normalized
+    g.viewer_cookie_needs_set = normalized != current_value
+
+
+@app.after_request
+def persist_viewer_cookie(response: Response):
+    viewer_id = getattr(g, "viewer_id", "")
+    if viewer_id:
+        response.set_cookie(VIEWER_COOKIE_NAME, viewer_id, **_cookie_settings())
+    return response
 
 
 @app.get("/api/health")
@@ -74,12 +115,12 @@ def healthcheck():
 
 @app.get("/api/sessions")
 def sessions():
-    return jsonify({"items": list_sessions()})
+    return jsonify({"items": list_sessions(g.viewer_id)})
 
 
 @app.get("/api/sessions/<session_id>")
 def session_detail(session_id: str):
-    session_payload = get_session_with_messages(session_id)
+    session_payload = get_session_with_messages(session_id, g.viewer_id)
     if session_payload is None:
         return jsonify({"error": "Session not found."}), 404
     return jsonify(session_payload)
@@ -87,7 +128,7 @@ def session_detail(session_id: str):
 
 @app.patch("/api/sessions/<session_id>")
 def session_update(session_id: str):
-    session = get_session_summary(session_id)
+    session = get_session_summary(session_id, g.viewer_id)
     if session is None:
         return jsonify({"error": "Session not found."}), 404
 
@@ -96,14 +137,14 @@ def session_update(session_id: str):
     if not title:
         return jsonify({"error": "A non-empty 'title' field is required."}), 400
 
-    update_session_title(session_id, title)
-    updated_session = get_session_summary(session_id)
+    update_session_title(session_id, g.viewer_id, title)
+    updated_session = get_session_summary(session_id, g.viewer_id)
     return jsonify({"session": updated_session})
 
 
 @app.delete("/api/sessions/<session_id>")
 def session_delete(session_id: str):
-    deleted = delete_session(session_id)
+    deleted = delete_session(session_id, g.viewer_id)
     if not deleted:
         return jsonify({"error": "Session not found."}), 404
     return ("", 204)
@@ -123,23 +164,23 @@ def chat():
         return jsonify({"error": "'history' must be an array of chat messages."}), 400
 
     if session_id:
-        session = get_session_summary(session_id)
+        session = get_session_summary(session_id, g.viewer_id)
         if session is None:
             return jsonify({"error": "Session not found."}), 404
     else:
-        session = create_session()
+        session = create_session(g.viewer_id)
         session_id = session["id"]
 
     add_message(session_id, "user", message)
     if count_user_messages(session_id) == 1:
-        _schedule_title_generation(session_id, message)
+        _schedule_title_generation(session_id, g.viewer_id, message)
 
     def generate():
         assistant_parts: list[str] = []
         assistant_sources: list[dict] = []
         assistant_saved = False
 
-        yield _sse("session", {"session": get_session_summary(session_id)})
+        yield _sse("session", {"session": get_session_summary(session_id, g.viewer_id)})
 
         try:
             for event in stream_shopper_reply(message=message, history=history):
@@ -157,7 +198,7 @@ def chat():
                             sources=assistant_sources,
                         )
                         assistant_saved = True
-                    event["data"]["session"] = get_session_summary(session_id)
+                    event["data"]["session"] = get_session_summary(session_id, g.viewer_id)
                 yield _sse(event["event"], event["data"])
         except Exception as exc:  # pragma: no cover - final guard rail
             yield _sse(
