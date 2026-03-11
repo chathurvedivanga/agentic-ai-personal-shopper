@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Assessment 3 - Frontend Module Implementation</title>
+    <style>
+      @page {
+        margin: 18mm;
+        size: A4;
+      }
+
+      body {
+        margin: 0;
+        color: #1a1a1a;
+        background: #f5f5f5;
+        font-family: "Segoe UI", Arial, sans-serif;
+        line-height: 1.55;
+      }
+
+      .page {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 18px auto;
+        padding: 18mm;
+        background: #ffffff;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+      }
+
+      h1,
+      h2,
+      h3 {
+        color: #111827;
+        margin: 0 0 10px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      h2 {
+        font-size: 18px;
+        margin-top: 22px;
+        border-bottom: 1px solid #d1d5db;
+        padding-bottom: 4px;
+      }
+
+      h3 {
+        font-size: 15px;
+        margin-top: 16px;
+      }
+
+      p,
+      li,
+      td,
+      th {
+        font-size: 12px;
+      }
+
+      .meta {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid #d1d5db;
+        background: #f9fafb;
+      }
+
+      ul {
+        margin-top: 6px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+
+      th,
+      td {
+        border: 1px solid #d1d5db;
+        padding: 8px;
+        vertical-align: top;
+        text-align: left;
+      }
+
+      th {
+        background: #f3f4f6;
+      }
+
+      code,
+      pre {
+        font-family: Consolas, "Courier New", monospace;
+      }
+
+      pre {
+        overflow-x: auto;
+        padding: 10px;
+        border: 1px solid #d1d5db;
+        background: #f9fafb;
+        white-space: pre-wrap;
+      }
+
+      .muted {
+        color: #4b5563;
+      }
+
+      @media print {
+        body {
+          background: #ffffff;
+        }
+
+        .page {
+          margin: 0;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <h1>Assessment 3 - Full Stack Laboratory</h1>
+      <h2>Frontend Module Implementation Report</h2>
+      <p><strong>Project Title:</strong> Agentic AI Personal Shopper / AI Shopping Partner</p>
+
+      <div class="meta">
+        <p><strong>Student Name:</strong> V Rama Chandra Chathurvedi, Aravind Prasad</p>
+        <p><strong>Register Number:</strong> 25MCS0067, 25MCS0060</p>
+        <p><strong>Technology Stack:</strong> React.js (Vite), Tailwind CSS, React Markdown, Flask REST API, Server-Sent Events</p>
+      </div>
+
+      <h2>1. Project Overview</h2>
+      <p>
+        The project developed for this assessment is an AI-driven shopping assistant called
+        <strong>Agentic AI Personal Shopper</strong>, presented in the interface as
+        <strong>AI Shopping Partner</strong>. The objective of the frontend is to provide a clean
+        conversational interface through which a user can ask for product recommendations, compare
+        alternatives, review YouTube-based shopping research, revisit earlier conversations, and
+        continue the same chat later.
+      </p>
+      <p>
+        The frontend is implemented as a <strong>single-page React application</strong> created with
+        Vite and styled with Tailwind CSS. Instead of using multiple web pages, the application uses
+        a workspace-style interface similar to ChatGPT, Gemini, and Claude. The frontend communicates
+        with the Flask backend through REST APIs and receives live assistant output using
+        <strong>Server-Sent Events (SSE)</strong>.
+      </p>
+
+      <h2>2. Frontend Architecture</h2>
+      <ul>
+        <li><strong>App.jsx:</strong> main application state, API integration, session loading, SSE streaming, home/chat switching.</li>
+        <li><strong>PromptComposer.jsx:</strong> prompt input box, submit handling, Enter-to-send behavior, stop button, and status text.</li>
+        <li><strong>SessionSidebar.jsx:</strong> saved chat list, collapsible side panel, new chat action, rename and delete controls.</li>
+        <li><strong>ChatBubble.jsx:</strong> renders assistant and user messages, markdown formatting, loading state, and YouTube source chips.</li>
+        <li><strong>lib/sse.js:</strong> parses streamed events coming from the Flask backend.</li>
+      </ul>
+
+      <h2>3. User Interface Design</h2>
+      <h3>3.1 Home / Landing View</h3>
+      <p>
+        The landing view contains the centered title <strong>AI Shopping Partner</strong>, a large
+        prompt composer, and starter prompts. This view acts as the clean entry point for starting a
+        new shopping query.
+      </p>
+
+      <h3>3.2 Conversation Workspace</h3>
+      <p>
+        After the first prompt, the interface switches to a conversation workspace that displays the
+        active chat title, user and assistant bubbles, streaming output, YouTube links, and a bottom
+        prompt composer for follow-up questions.
+      </p>
+
+      <h3>3.3 Saved Chats Sidebar</h3>
+      <p>
+        The left sidebar stores earlier sessions and allows the user to create a new chat, revisit a
+        saved chat, rename a chat, or delete a chat. This provides persistent conversation management
+        similar to modern AI assistants.
+      </p>
+
+      <h2>4. Routing and Navigation</h2>
+      <p>
+        This project does <strong>not use React Router</strong>. Instead, it uses a
+        <strong>state-driven SPA navigation model</strong>. This is suitable because the application
+        is centered around one conversational workspace rather than multiple URL-based pages.
+      </p>
+      <ul>
+        <li>Selecting <strong>New chat</strong> resets the interface to a draft conversation.</li>
+        <li>Clicking <strong>AI Shopping Partner</strong> returns the user to the home state.</li>
+        <li>Selecting a saved session loads that conversation from the backend.</li>
+        <li>The sidebar can collapse on desktop and open as a drawer on mobile.</li>
+      </ul>
+
+      <h2>5. User Interaction Handling</h2>
+      <h3>5.1 Prompt Input and Form Handling</h3>
+      <ul>
+        <li>Enter sends the prompt.</li>
+        <li>Shift + Enter inserts a new line.</li>
+        <li>Empty prompts are blocked.</li>
+        <li>The textarea supports a 2000-character maximum.</li>
+        <li>A live character counter is shown.</li>
+      </ul>
+
+      <h3>5.2 API Request Handling</h3>
+      <p>
+        The frontend sends a <code>POST /api/chat</code> request with the new message, prior chat
+        history, and the active session ID. The response is read as an SSE stream and processed using
+        the event types <code>session</code>, <code>status</code>, <code>sources</code>,
+        <code>chunk</code>, <code>error</code>, and <code>done</code>.
+      </p>
+
+      <h3>5.3 Real-Time Feedback</h3>
+      <ul>
+        <li>Status text while the backend is preparing research</li>
+        <li>Streaming assistant text while generation is in progress</li>
+        <li>A stop button to cancel active generation</li>
+        <li>Error banners for network or backend failures</li>
+        <li>Automatic scroll to the latest message</li>
+      </ul>
+
+      <h2>6. Responsive User Interface</h2>
+      <ul>
+        <li>Fixed desktop sidebar and drawer-style mobile sidebar</li>
+        <li>Collapsible sidebar for more content space</li>
+        <li>Scrollable chat area with persistent composer</li>
+        <li>Controlled content width for readability</li>
+        <li>Adaptive spacing and typography using Tailwind utility classes</li>
+      </ul>
+
+      <h2>7. Component-Based Design and Dynamic Data Rendering</h2>
+      <p>
+        The application uses arrays such as <code>sessions</code> and <code>messages</code> to render
+        the sidebar and conversation dynamically. Assistant source links are rendered only when
+        available, and session metadata is updated after rename, delete, or new assistant replies.
+      </p>
+
+      <h2>8. API Documentation for Frontend Integration</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th>Method</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>/api/sessions</td>
+            <td>GET</td>
+            <td>Fetch all saved chat sessions for the sidebar</td>
+          </tr>
+          <tr>
+            <td>/api/sessions/&lt;id&gt;</td>
+            <td>GET</td>
+            <td>Load a selected conversation and its messages</td>
+          </tr>
+          <tr>
+            <td>/api/sessions/&lt;id&gt;</td>
+            <td>PATCH</td>
+            <td>Rename a chat title</td>
+          </tr>
+          <tr>
+            <td>/api/sessions/&lt;id&gt;</td>
+            <td>DELETE</td>
+            <td>Delete a saved chat</td>
+          </tr>
+          <tr>
+            <td>/api/chat</td>
+            <td>POST</td>
+            <td>Send a prompt and receive a streamed assistant response</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>9. Conclusion</h2>
+      <p>
+        The frontend of <strong>Agentic AI Personal Shopper</strong> was implemented as a modern
+        React single-page application focused on readability, responsiveness, and continuity of user
+        interaction. It combines a clean landing page, a chat-based shopping workspace, persistent
+        saved conversations, and live streaming responses. The project demonstrates component-based
+        design, asynchronous UI updates, form handling, responsive layout design, and practical
+        frontend engineering for an AI-assisted product research system.
+      </p>
+
+      <h2>Appendix A - Frontend Code Summary</h2>
+      <h3>A.1 UI Components</h3>
+      <ul>
+        <li><code>App.jsx</code> coordinates application state and screen transitions.</li>
+        <li><code>PromptComposer.jsx</code> handles prompt entry, submission, and active-stream controls.</li>
+        <li><code>SessionSidebar.jsx</code> manages chat history visibility and session actions.</li>
+        <li><code>ChatBubble.jsx</code> renders formatted conversation content and YouTube source links.</li>
+      </ul>
+
+      <h3>A.2 Form Handling</h3>
+      <pre>function handleComposerKeyDown(event) {
+  if (event.nativeEvent?.isComposing || event.key !== "Enter" || event.shiftKey) {
+    return;
+  }
+
+  event.preventDefault();
+  if (!isBusy && input.trim()) {
+    void sendMessage();
+  }
+}</pre>
+
+      <h3>A.3 SSE Streaming Logic</h3>
+      <pre>if (event.event === "chunk") {
+  setStatusText("");
+  appendAssistantChunk(assistantMessageId, payload.text || "");
+}</pre>
+
+      <h3>A.4 Routing Logic</h3>
+      <pre>function handleGoHome() {
+  startNewChat({ keepSidebarOpen: false });
+}</pre>
+      <p>
+      <img src="./prompt.png" alt="Prompt Composer Screenshot" style="width: 100%; max-width: 600px; margin-top: 20px;" />
+      <br>
+      <img src="./webiste.png" alt="Website Screenshot" style="width: 100%; max-width: 600px; margin-top: 20px;" />
+    </p>
+    </main>
+  </body>
+</html>
