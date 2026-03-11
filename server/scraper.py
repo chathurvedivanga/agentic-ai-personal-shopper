@@ -29,9 +29,9 @@ SKIPPABLE_ERRORS = (
     TranscriptsDisabled,
     VideoUnavailable,
 )
-MAX_TRANSCRIPT_CHARS = 5000
-SEARCH_CANDIDATE_LIMIT = 15
-TARGET_TRANSCRIPT_RESULTS = 5
+MAX_TRANSCRIPT_CHARS = 2800
+SEARCH_CANDIDATE_LIMIT = 12
+TARGET_TRANSCRIPT_RESULTS = 4
 
 SEARCH_STOPWORDS = {
     "a",
@@ -183,7 +183,16 @@ def _truncate_transcript(entries: List[Dict[str, Any]]) -> str:
         segment.get("text", "").replace("\n", " ").strip() for segment in entries
     )
     transcript = " ".join(transcript.split())
-    return transcript[:MAX_TRANSCRIPT_CHARS]
+    if len(transcript) <= MAX_TRANSCRIPT_CHARS:
+        return transcript
+
+    head_budget = int(MAX_TRANSCRIPT_CHARS * 0.65)
+    tail_budget = MAX_TRANSCRIPT_CHARS - head_budget - len(" ... ")
+    head = transcript[:head_budget].rsplit(" ", 1)[0].strip()
+    tail = transcript[-tail_budget:].split(" ", 1)[-1].strip()
+    if not head or not tail:
+        return transcript[:MAX_TRANSCRIPT_CHARS]
+    return f"{head} ... {tail}"
 
 
 def _normalize_transcript_entries(entries: Any) -> List[Dict[str, Any]]:

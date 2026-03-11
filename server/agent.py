@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import re
+import time
+from threading import Lock
 from typing import Any, Dict, Iterator, List
 
 import google.generativeai as genai
@@ -23,9 +25,11 @@ Response style:
 - Default to the Indian market unless the user explicitly asks for another country.
 - Use Indian rupees (INR / Rs / ₹) in recommendations and budgets by default.
 - If the user gives a budget in another currency such as USD, mention an approximate INR equivalent once and then continue in INR only.
+- For budget recommendation requests, recommend 3-5 specific product models with approximate India prices whenever possible. Do not answer with only broad brands or series names.
 - Prefer evidence from supplied YouTube review transcripts whenever they exist.
 - If videos were found but transcripts were inaccessible, say that transcript access failed or subtitles were unavailable. Do not say the videos were unavailable.
 - If fresh transcript evidence is unavailable, still provide a best-effort shortlist using the available review metadata and stable product knowledge.
+- If the category is ambiguous enough to produce generic advice, ask one short clarifying question before recommending. For example, clarify whether "watch" means smartwatch or analog watch.
 - Start recommendation answers with a section titled "Verdict".
 - Include a section titled "What the YouTube reviews focused on" with 3-5 bullets when review evidence is available.
 - If multiple products are discussed, include a section titled "Quick compare" and use this exact style for each option:
@@ -48,6 +52,50 @@ TITLE_MAX_LENGTH = 48
 MAX_HISTORY_MESSAGES = 10
 TOOL_NAME = "fetch_youtube_reviews"
 DIRECT_RESPONSE_CHUNK_SIZE = 220
+RESEARCH_CACHE_TTL_SECONDS = 30 * 60
+FAST_PATH_RESEARCH_CUES = (
+    "recommend",
+    "best",
+    "under",
+    "buy",
+    "budget",
+    "vs",
+    "versus",
+    "compare",
+    "comparison",
+    "shortlist",
+    "top",
+    "which should i buy",
+    "looking for",
+    "need a",
+)
+FOLLOW_UP_RESEARCH_CUES = (
+    "first one",
+    "second one",
+    "third one",
+    "that one",
+    "those",
+    "these",
+    "battery",
+    "camera",
+    "display",
+    "performance",
+    "software",
+    "thermals",
+    "charger",
+    "charging",
+    "durability",
+    "which one",
+    "what about",
+    "how is",
+    "how's",
+)
+WATCH_AMBIGUITY_PATTERN = re.compile(r"\bwatches?\b")
+WATCH_TYPE_PATTERN = re.compile(
+    r"\b(smart ?watch|analog watch|analogue watch|mechanical watch|digital watch|fitness watch)\b"
+)
+_RESEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
+_RESEARCH_CACHE_LOCK = Lock()
 
 
 def _build_model(
@@ -260,6 +308,10 @@ def fetch_youtube_reviews(product_name: str) -> Dict[str, Any]:
     if not query:
         query = "product reviews"
 
+    cached = _get_cached_research(query)
+    if cached is not None:
+        return cached
+
     videos = search_youtube_videos(query)
     research_items: List[Dict[str, Any]] = []
 
@@ -285,7 +337,7 @@ def fetch_youtube_reviews(product_name: str) -> Dict[str, Any]:
         )
 
     source_items = _format_sources(research_items if research_items else videos)
-    return {
+    payload = {
         "query": query,
         "video_count": len(videos),
         "transcript_count": len(research_items),
@@ -293,7 +345,10 @@ def fetch_youtube_reviews(product_name: str) -> Dict[str, Any]:
         "research_context": _format_research_context(research_items, research_note),
         "video_search_results": _format_video_candidates(videos),
         "sources": source_items,
+        "cache_hit": False,
     }
+    _store_cached_research(query, payload)
+    return payload
 
 
 def _to_chat_history(
@@ -384,6 +439,27 @@ def _merge_sources(
     return merged
 
 
+def _get_tool_payload(
+    research_query: str,
+    tool_cache: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    cache_key = research_query.lower()
+    if cache_key not in tool_cache:
+        tool_cache[cache_key] = fetch_youtube_reviews(research_query)
+    return tool_cache[cache_key]
+
+
+def _function_response_part(function_name: str, payload: Dict[str, Any]) -> protos.Part:
+    clean_payload = dict(payload)
+    clean_payload.pop("cache_hit", None)
+    return protos.Part(
+        function_response=protos.FunctionResponse(
+            name=function_name,
+            response=clean_payload,
+        )
+    )
+
+
 def _build_quota_fallback_answer(
     message: str,
     tool_cache: Dict[str, Dict[str, Any]],
@@ -436,6 +512,90 @@ def _build_quota_fallback_answer(
     return "\n".join(lines)
 
 
+def _normalize_cache_key(query: str) -> str:
+    return re.sub(r"\s+", " ", (query or "").strip().lower())
+
+
+def _get_cached_research(query: str) -> Dict[str, Any] | None:
+    cache_key = _normalize_cache_key(query)
+    if not cache_key:
+        return None
+
+    now = time.time()
+    with _RESEARCH_CACHE_LOCK:
+        cached = _RESEARCH_CACHE.get(cache_key)
+        if not cached:
+            return None
+        if cached["expires_at"] <= now:
+            _RESEARCH_CACHE.pop(cache_key, None)
+            return None
+
+        payload = dict(cached["payload"])
+        payload["cache_hit"] = True
+        return payload
+
+
+def _store_cached_research(query: str, payload: Dict[str, Any]) -> None:
+    cache_key = _normalize_cache_key(query)
+    if not cache_key:
+        return
+
+    cache_payload = dict(payload)
+    cache_payload.pop("cache_hit", None)
+    with _RESEARCH_CACHE_LOCK:
+        _RESEARCH_CACHE[cache_key] = {
+            "expires_at": time.time() + RESEARCH_CACHE_TTL_SECONDS,
+            "payload": cache_payload,
+        }
+
+
+def _has_shopping_research_intent(message: str) -> bool:
+    normalized = (message or "").strip().lower()
+    if not normalized:
+        return False
+
+    if any(cue in normalized for cue in FAST_PATH_RESEARCH_CUES):
+        return True
+
+    return bool(
+        re.search(r"\bunder\s*(?:rs|₹|\$|\d)", normalized)
+        or re.search(r"\btop\s+\d", normalized)
+        or " vs " in normalized
+    )
+
+
+def _is_ambiguous_category_request(message: str) -> bool:
+    normalized = (message or "").strip().lower()
+    if not normalized:
+        return False
+
+    return bool(
+        WATCH_AMBIGUITY_PATTERN.search(normalized)
+        and not WATCH_TYPE_PATTERN.search(normalized)
+    )
+
+
+def _looks_like_follow_up(message: str, history: List[Dict[str, Any]]) -> bool:
+    if not any((item.get("role") or "").strip().lower() == "assistant" for item in history):
+        return False
+
+    normalized = (message or "").strip().lower()
+    if not normalized:
+        return False
+
+    return any(cue in normalized for cue in FOLLOW_UP_RESEARCH_CUES)
+
+
+def _should_fast_path_research(message: str, history: List[Dict[str, Any]]) -> bool:
+    if not _has_shopping_research_intent(message):
+        return False
+    if _is_ambiguous_category_request(message):
+        return False
+    if _looks_like_follow_up(message, history):
+        return False
+    return True
+
+
 def stream_shopper_reply(
     message: str, history: List[Dict[str, Any]]
 ) -> Iterator[Dict[str, Any]]:
@@ -447,10 +607,100 @@ def stream_shopper_reply(
     active_model = ""
     assistant_sources: List[Dict[str, str]] = []
     last_error: Exception | None = None
+    fast_path_tool_query = message if _should_fast_path_research(message, history) else ""
 
     for index, model_name in enumerate(attempted_models):
         active_model = model_name
         attempt_emitted_text = False
+
+        if fast_path_tool_query:
+            try:
+                used_tool = True
+                yield {
+                    "event": "status",
+                    "data": {
+                        "message": f"Agent is searching YouTube for: {fast_path_tool_query}"
+                    },
+                }
+                tool_payload = _get_tool_payload(fast_path_tool_query, tool_cache)
+                yield {
+                    "event": "status",
+                    "data": {
+                        "message": (
+                            "Agent is reusing recent YouTube review research..."
+                            if tool_payload.get("cache_hit")
+                            else "Agent is watching YouTube reviews and extracting transcripts in parallel..."
+                        )
+                    },
+                }
+                assistant_sources = _merge_sources(
+                    assistant_sources,
+                    tool_payload.get("sources", []),
+                )
+                if assistant_sources:
+                    yield {"event": "sources", "data": {"items": assistant_sources}}
+
+                yield {
+                    "event": "status",
+                    "data": {
+                        "message": f"Agent is drafting your shopping verdict with {model_name}..."
+                    },
+                }
+                model = _build_model(model_name, tools=[fetch_youtube_reviews])
+                history_with_message = [
+                    *prepared_history,
+                    protos.Content(role="user", parts=[protos.Part(text=message)]),
+                ]
+                chat = model.start_chat(history=history_with_message)
+                final_stream = chat.send_message(
+                    protos.Content(
+                        role="user",
+                        parts=[_function_response_part(TOOL_NAME, tool_payload)],
+                    ),
+                    generation_config={"temperature": 0.4},
+                    tool_config={"function_calling_config": "none"},
+                    stream=True,
+                )
+
+                for chunk in final_stream:
+                    text = _safe_chunk_text(chunk)
+                    if not text:
+                        continue
+                    attempt_emitted_text = True
+                    yield {"event": "chunk", "data": {"text": text}}
+
+                if attempt_emitted_text:
+                    emitted_text = True
+                    break
+
+                last_error = RuntimeError("Gemini returned an empty response after tool execution.")
+                if index < len(attempted_models) - 1:
+                    continue
+            except Exception as exc:
+                last_error = exc
+                if _is_model_not_found(exc) and index < len(attempted_models) - 1:
+                    yield {
+                        "event": "status",
+                        "data": {
+                            "message": (
+                                f"Configured model {model_name} is unavailable. "
+                                "Retrying with the next supported Gemini model..."
+                            )
+                        },
+                    }
+                    continue
+                if _is_quota_exhausted(exc) and index < len(attempted_models) - 1:
+                    yield {
+                        "event": "status",
+                        "data": {
+                            "message": (
+                                f"Model quota for {model_name} is exhausted. "
+                                "Retrying with the next configured Gemini model..."
+                            )
+                        },
+                    }
+                    continue
+                raise
 
         yield {
             "event": "status",
@@ -506,33 +756,29 @@ def stream_shopper_reply(
                 research_query = (
                     str(function_args.get("product_name") or message).strip() or message
                 )
-                cache_key = research_query.lower()
-
-                if cache_key not in tool_cache:
+                if research_query.lower() not in tool_cache:
                     yield {
                         "event": "status",
                         "data": {"message": f"Agent is searching YouTube for: {research_query}"},
                     }
-                    yield {
-                        "event": "status",
-                        "data": {
-                            "message": "Agent is watching YouTube reviews and extracting transcripts in parallel..."
-                        },
-                    }
-                    tool_cache[cache_key] = fetch_youtube_reviews(research_query)
 
-                tool_payload = tool_cache[cache_key]
+                tool_payload = _get_tool_payload(research_query, tool_cache)
+                yield {
+                    "event": "status",
+                    "data": {
+                        "message": (
+                            "Agent is reusing recent YouTube review research..."
+                            if tool_payload.get("cache_hit")
+                            else "Agent is watching YouTube reviews and extracting transcripts in parallel..."
+                        )
+                    },
+                }
                 combined_sources = _merge_sources(
                     combined_sources,
                     tool_payload.get("sources", []),
                 )
                 function_response_parts.append(
-                    protos.Part(
-                        function_response=protos.FunctionResponse(
-                            name=function_call.name,
-                            response=tool_payload,
-                        )
-                    )
+                    _function_response_part(function_call.name, tool_payload)
                 )
 
             assistant_sources = combined_sources
