@@ -75,8 +75,7 @@ LAYER1_AGENTS = {
         "prompt": (
             "You are a product summarizer. Read the transcript and query. "
             "Output a concise bulleted list of the top 3 best features mentioned. "
-            "Return ONLY the bulleted list. Do NOT include any internal monologue, "
-            "reasoning, or tags like <think>."
+            "Return ONLY the bulleted list."
         ),
     },
     "extractor": {
@@ -86,8 +85,7 @@ LAYER1_AGENTS = {
             "Extract EVERY technical specification, brand, model, and hard fact mentioned. "
             "Be exhaustive. If transcripts are missing or thin, use the video titles and channel "
             "metadata to extract as much information as possible.\n"
-            "Return ONLY a valid JSON object. Do NOT include any internal monologue, "
-            "reasoning, or tags like <think>. Do not include markdown formatting. "
+            "Return ONLY a valid JSON object. Do not include markdown formatting. "
             "Keep values concise. Do not guess; only include what is explicitly stated."
         ),
     },
@@ -698,6 +696,7 @@ async def _call_groq_agent(
     agent_config: Dict[str, str],
     user_payload: str,
     max_retries: int = 3,
+    response_format: Dict[str, Any] | None = None,
 ) -> str:
     api_key = (os.getenv("GROQ_API_KEY") or "").strip()
     if not api_key:
@@ -720,6 +719,8 @@ async def _call_groq_agent(
         "temperature": 0.0,
         "max_tokens": 700,
     }
+    if response_format:
+        payload["response_format"] = response_format
 
     last_status = 0
     for attempt in range(max_retries):
@@ -821,6 +822,7 @@ async def _run_layer1_agents(
             "extractor",
             LAYER1_AGENTS["extractor"],
             user_payload,
+            response_format={"type": "json_object"},
         )
 
     return {
