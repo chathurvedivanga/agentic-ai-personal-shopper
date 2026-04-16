@@ -48,6 +48,14 @@ DATABASE_URL=
 DB_PATH=agentic_shopper.db
 ```
 
+For local Neon Postgres testing, paste the Neon connection string into `DATABASE_URL`:
+
+```env
+DATABASE_URL=postgresql://user:password@ep-example.ap-south-1.aws.neon.tech/dbname?sslmode=require
+```
+
+Leave `DATABASE_URL=` empty if you want local development to keep using SQLite.
+
 Run the backend:
 
 ```bash
@@ -119,7 +127,7 @@ OPENROUTER_API_KEY=your_openrouter_key
 OPENROUTER_APP_TITLE=AI Shopping Partner
 OPENROUTER_HTTP_REFERER=https://your-frontend-domain.onrender.com
 CORS_ORIGIN=https://your-frontend-domain.onrender.com
-DATABASE_URL=postgresql://...
+DATABASE_URL=postgresql://user:password@ep-example.region.aws.neon.tech/dbname?sslmode=require
 ```
 
 ### Frontend Service
@@ -144,16 +152,29 @@ If you deploy using the included `render.yaml`, Render auto-wires:
 - `VITE_API_BASE_URL` from the backend service's `RENDER_EXTERNAL_URL`
 - `CORS_ORIGIN` from the frontend service's `RENDER_EXTERNAL_URL`
 - `OPENROUTER_HTTP_REFERER` from the frontend service's `RENDER_EXTERNAL_URL`
-- `DATABASE_URL` from the managed Render Postgres service
+- `DATABASE_URL` is marked as a secret value; paste your Neon Postgres connection string into the backend service environment
 
 The backend also accepts comma-separated CORS origins and falls back to permissive CORS on Render if no origin is injected, which helps prevent first-deploy CORS failures.
 
 ### Storage Model
 
 - Local development uses SQLite by default through `DB_PATH=agentic_shopper.db`
-- Render production uses `DATABASE_URL` and stores chat history in Postgres
+- Production uses `DATABASE_URL` and stores chat history in Neon Postgres 17
 
 This lets you keep lightweight local setup while avoiding ephemeral filesystem issues in deployment.
+
+### Neon Postgres Setup
+
+Use Neon as the production database by setting the backend `DATABASE_URL` environment variable.
+
+1. In Neon, copy the pooled or direct PostgreSQL connection string.
+2. Make sure the URL includes `sslmode=require`.
+3. In Render, open the backend service `agentic-ai-personal-shopper-api`.
+4. Go to **Environment**.
+5. Add or update `DATABASE_URL` with the Neon connection string.
+6. Save changes and redeploy the backend service.
+
+Do not paste the real Neon connection string into GitHub, `README.md`, or `.env.example`.
 
 ### Mixture-of-Agents Pipeline
 

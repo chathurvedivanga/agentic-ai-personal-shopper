@@ -102,6 +102,10 @@ def _database_url() -> str:
     if not configured:
         return _sqlite_url()
 
+    if "neon.tech" in configured and "sslmode=" not in configured.lower():
+        separator = "&" if "?" in configured else "?"
+        configured = f"{configured}{separator}sslmode=require"
+
     if configured.startswith("postgres://"):
         configured = configured.replace("postgres://", "postgresql+psycopg://", 1)
     elif configured.startswith("postgresql://"):
@@ -114,15 +118,27 @@ def _database_url() -> str:
 def _engine() -> Engine:
     database_url = _database_url()
     connect_args: Dict[str, Any] = {}
+    engine_options: Dict[str, Any] = {
+        "future": True,
+        "pool_pre_ping": True,
+    }
 
     if database_url.startswith("sqlite:///"):
         connect_args["check_same_thread"] = False
+    else:
+        # Neon serverless connections can be recycled after idle periods.
+        # Pre-ping plus recycle keeps Render workers from holding stale sockets.
+        engine_options.update(
+            {
+                "pool_recycle": 300,
+                "pool_timeout": 30,
+            }
+        )
 
     return create_engine(
         database_url,
-        future=True,
-        pool_pre_ping=True,
         connect_args=connect_args,
+        **engine_options,
     )
 
 
