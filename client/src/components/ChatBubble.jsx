@@ -1,3 +1,4 @@
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 const markdownComponents = {
@@ -76,6 +77,83 @@ const markdownComponents = {
   )
 };
 
+function renderExtractor(extractor) {
+  if (!extractor) {
+    return "No extractor output was returned.";
+  }
+
+  if (typeof extractor === "string") {
+    return extractor;
+  }
+
+  return JSON.stringify(extractor, null, 2);
+}
+
+function AgentDebate({ breakdown }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  if (!breakdown) {
+    return null;
+  }
+
+  return (
+    <div className="mt-5 rounded-[22px] border border-white/10 bg-black/20">
+      <button
+        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left"
+        onClick={() => setIsOpen((current) => !current)}
+        type="button"
+      >
+        <div>
+          <p className="text-sm font-semibold text-white">
+            Behind the Scenes: AI Agent Debate
+          </p>
+          <p className="mt-1 text-xs text-stone-500">
+            Critic, summarizer, and structured extractor outputs
+          </p>
+        </div>
+        <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-stone-400">
+          {isOpen ? "Hide" : "View"}
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="border-t border-white/8 px-4 py-4">
+          <div className="grid gap-3 lg:grid-cols-3">
+            <section className="rounded-2xl border border-red-300/10 bg-red-950/15 p-3">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-red-100/80">
+                Critic
+              </p>
+              <p className="text-sm leading-6 text-stone-200">
+                {breakdown.critic || "No critic output was returned."}
+              </p>
+            </section>
+
+            <section className="rounded-2xl border border-amber-300/10 bg-amber-950/10 p-3">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-100/80">
+                Summarizer
+              </p>
+              <div className="text-sm leading-6 text-stone-200">
+                <ReactMarkdown components={markdownComponents}>
+                  {breakdown.summarizer || "No summarizer output was returned."}
+                </ReactMarkdown>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-sky-300/10 bg-sky-950/10 p-3">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-100/80">
+                Extractor
+              </p>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-black/25 p-3 text-xs leading-5 text-stone-200">
+                {renderExtractor(breakdown.extractor)}
+              </pre>
+            </section>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ChatBubble({ message, loadingText }) {
   const isAssistant = message.role === "assistant";
   const bubbleClass = isAssistant
@@ -137,6 +215,10 @@ export default function ChatBubble({ message, loadingText }) {
               ))}
             </div>
           </div>
+        ) : null}
+
+        {isAssistant && !message.pending ? (
+          <AgentDebate breakdown={message.agentBreakdown} />
         ) : null}
       </article>
     </div>

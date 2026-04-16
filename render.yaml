@@ -16,6 +16,15 @@ services:
         value: gemini-2.5-flash
       - key: GEMINI_FALLBACK_MODELS
         value: gemini-2.0-flash,gemini-flash-latest
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_APP_TITLE
+        value: AI Shopping Partner
+      - key: OPENROUTER_HTTP_REFERER
+        fromService:
+          type: web
+          name: ai-shopping-partner-web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: CORS_ORIGIN
         fromService:
           type: web

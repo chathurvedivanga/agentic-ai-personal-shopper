@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import re
 import time
@@ -7,6 +9,7 @@ from threading import Lock
 from typing import Any, Dict, Iterator, List
 
 import google.generativeai as genai
+import httpx
 from google.api_core.exceptions import NotFound, ResourceExhausted
 from google.generativeai import protos
 
@@ -53,6 +56,34 @@ MAX_HISTORY_MESSAGES = 10
 TOOL_NAME = "fetch_youtube_reviews"
 DIRECT_RESPONSE_CHUNK_SIZE = 220
 RESEARCH_CACHE_TTL_SECONDS = 30 * 60
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_TIMEOUT_SECONDS = 10.0
+OPENROUTER_APP_TITLE = "AI Shopping Partner"
+LAYER1_AGENTS = {
+    "critic": {
+        "model": "meta-llama/llama-3.2-3b-instruct:free",
+        "prompt": (
+            "You are a critical product reviewer. Read the transcript and query. "
+            "In one short paragraph, highlight only the major flaws, missing features, "
+            "or concerns."
+        ),
+    },
+    "summarizer": {
+        "model": "google/gemma-3-4b-it:free",
+        "prompt": (
+            "You are a product summarizer. Read the transcript and query. "
+            "Output a concise bulleted list of the top 3 best features mentioned."
+        ),
+    },
+    "extractor": {
+        "model": "qwen/qwen3-4b:free",
+        "prompt": (
+            "You are a strict data extractor. Read the transcript. Output ONLY a valid "
+            "JSON object containing objective specifications (e.g., 'price', "
+            "'battery_life', 'materials'). No markdown formatting."
+        ),
+    },
+}
 FAST_PATH_RESEARCH_CUES = (
     "recommend",
     "best",
@@ -659,6 +690,355 @@ def fetch_youtube_reviews(product_name: str) -> Dict[str, Any]:
     }
     _store_cached_research(query, payload)
     return payload
+
+
+def _format_history_for_moa(history: List[Dict[str, Any]]) -> str:
+    if not history:
+        return "No prior conversation."
+
+    lines: List[str] = []
+    for item in history[-MAX_HISTORY_MESSAGES:]:
+        role = (item.get("role") or "user").strip().lower()
+        content = re.sub(r"\s+", " ", (item.get("content") or "").strip())
+        if not content:
+            continue
+        label = "Assistant" if role == "assistant" else "User"
+        lines.append(f"{label}: {content[:900]}")
+
+    return "\n".join(lines) if lines else "No prior conversation."
+
+
+def _build_layer1_user_payload(
+    query: str,
+    research_payload: Dict[str, Any],
+    history: List[Dict[str, Any]],
+) -> str:
+    research_context = (research_payload.get("research_context") or "").strip()
+    if not research_context:
+        research_context = research_payload.get("research_note") or "No transcript context was available."
+
+    video_results = research_payload.get("video_search_results") or "No video metadata was available."
+    return f"""
+User query:
+{query}
+
+Recent conversation:
+{_format_history_for_moa(history)}
+
+YouTube transcript evidence and notes:
+{research_context}
+
+YouTube video metadata:
+{video_results}
+""".strip()
+
+
+def _build_history_research_payload(
+    query: str,
+    history: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    assistant_context = "\n\n".join(
+        (item.get("content") or "").strip()
+        for item in history[-MAX_HISTORY_MESSAGES:]
+        if (item.get("role") or "").strip().lower() == "assistant"
+        and (item.get("content") or "").strip()
+    )
+    if not assistant_context:
+        assistant_context = "No prior assistant recommendation is available."
+
+    return {
+        "query": query,
+        "video_count": 0,
+        "transcript_count": 0,
+        "research_note": (
+            "No fresh YouTube search was run because this message appears to be a "
+            "follow-up or does not yet contain a clear new shopping research target."
+        ),
+        "research_context": f"Existing conversation context:\n{assistant_context}",
+        "video_search_results": "Fresh YouTube video search was skipped for this turn.",
+        "sources": [],
+        "cache_hit": False,
+        "fresh_search": False,
+    }
+
+
+async def _call_openrouter_agent(
+    client: httpx.AsyncClient,
+    agent_name: str,
+    agent_config: Dict[str, str],
+    user_payload: str,
+) -> str:
+    api_key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    if not api_key:
+        return (
+            "OpenRouter API key is not configured, so this Layer 1 agent could not run. "
+            "Add OPENROUTER_API_KEY in Render and server/.env to enable the full MoA debate."
+        )
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-Title": os.getenv("OPENROUTER_APP_TITLE", OPENROUTER_APP_TITLE),
+    }
+    referer = (os.getenv("OPENROUTER_HTTP_REFERER") or "").strip()
+    if referer:
+        headers["HTTP-Referer"] = referer
+
+    payload = {
+        "model": agent_config["model"],
+        "messages": [
+            {"role": "system", "content": agent_config["prompt"]},
+            {"role": "user", "content": user_payload},
+        ],
+        "temperature": 0.2 if agent_name == "extractor" else 0.35,
+        "max_tokens": 700,
+    }
+
+    try:
+        response = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+            or f"{agent_name.title()} returned an empty response."
+        )
+    except httpx.TimeoutException:
+        return f"{agent_name.title()} timed out after {int(OPENROUTER_TIMEOUT_SECONDS)} seconds."
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        return f"{agent_name.title()} failed with OpenRouter HTTP {status_code}."
+    except Exception as exc:
+        return f"{agent_name.title()} failed: {str(exc) or 'Unknown OpenRouter error.'}"
+
+
+def _strip_json_markdown(raw_text: str) -> str:
+    text = (raw_text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        return text[first_brace : last_brace + 1]
+    return text
+
+
+def _parse_extractor_json(raw_text: str) -> Dict[str, Any]:
+    cleaned = _strip_json_markdown(raw_text)
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+        return {"value": parsed}
+    except json.JSONDecodeError:
+        return {
+            "raw": (raw_text or "").strip(),
+            "parse_error": "Extractor did not return valid JSON.",
+        }
+
+
+async def _run_layer1_agents(
+    query: str,
+    research_payload: Dict[str, Any],
+    history: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    user_payload = _build_layer1_user_payload(query, research_payload, history)
+    timeout = httpx.Timeout(OPENROUTER_TIMEOUT_SECONDS)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        critic_task = _call_openrouter_agent(
+            client,
+            "critic",
+            LAYER1_AGENTS["critic"],
+            user_payload,
+        )
+        summarizer_task = _call_openrouter_agent(
+            client,
+            "summarizer",
+            LAYER1_AGENTS["summarizer"],
+            user_payload,
+        )
+        extractor_task = _call_openrouter_agent(
+            client,
+            "extractor",
+            LAYER1_AGENTS["extractor"],
+            user_payload,
+        )
+        critic, summarizer, extractor_raw = await asyncio.gather(
+            critic_task,
+            summarizer_task,
+            extractor_task,
+        )
+
+    return {
+        "critic": critic,
+        "summarizer": summarizer,
+        "extractor": _parse_extractor_json(extractor_raw),
+        "extractor_raw": extractor_raw,
+    }
+
+
+def _build_moa_synthesis_prompt(
+    query: str,
+    research_payload: Dict[str, Any],
+    layer1: Dict[str, Any],
+    history: List[Dict[str, Any]],
+) -> str:
+    extractor_json = json.dumps(layer1.get("extractor") or {}, indent=2, ensure_ascii=False)
+    sources = research_payload.get("sources") or []
+    source_lines = "\n".join(
+        f"- {source.get('channel') or 'YouTube'}: {source.get('title')} ({source.get('url')})"
+        for source in sources[:8]
+    )
+
+    return f"""
+Act as the final shopping synthesizer.
+
+Review the user query and the following agent analyses. Resolve contradictions, prefer transcript-backed evidence, and write a final, highly polished product recommendation formatted in Markdown.
+
+Rules:
+- Default to Indian buyers and Indian rupees.
+- Recommend specific product models, not only broad brands.
+- Keep the answer practical, concise, and buyer-friendly.
+- Use Markdown headings and bullets. Avoid wide Markdown tables because the chat UI is narrow.
+- Start with "## Verdict".
+- Include recurring reviewer/user feedback naturally inside the recommendation.
+- If transcripts were unavailable, be transparent that YouTube search happened but transcript access was limited.
+- Do not create a separate "YouTube Links" section; the UI renders source links separately.
+- For multiple products, use a "## Quick compare" section with one compact subsection per model.
+
+User query:
+{query}
+
+Recent conversation:
+{_format_history_for_moa(history)}
+
+YouTube research note:
+{research_payload.get("research_note") or "No research note available."}
+
+YouTube sources:
+{source_lines or "No source links available."}
+
+Layer 1 critic:
+{layer1.get("critic") or "No critic output."}
+
+Layer 1 summarizer:
+{layer1.get("summarizer") or "No summarizer output."}
+
+Layer 1 extractor JSON:
+{extractor_json}
+""".strip()
+
+
+def _synthesize_moa_with_gemini(
+    query: str,
+    research_payload: Dict[str, Any],
+    layer1: Dict[str, Any],
+    history: List[Dict[str, Any]],
+) -> tuple[str, str]:
+    prompt = _build_moa_synthesis_prompt(query, research_payload, layer1, history)
+    last_error: Exception | None = None
+
+    for model_name in _candidate_models():
+        try:
+            model = _build_model(
+                model_name,
+                system_instruction=(
+                    "You are an expert final shopping synthesizer. You combine multiple "
+                    "agent analyses into one accurate, polished recommendation."
+                ),
+            )
+            response = model.generate_content(
+                prompt,
+                generation_config={"temperature": 0.35},
+            )
+            text = (getattr(response, "text", "") or "").strip()
+            if text:
+                return text, model_name
+            last_error = RuntimeError(f"{model_name} returned an empty synthesis.")
+        except Exception as exc:
+            last_error = exc
+            if _is_model_not_found(exc) or _is_quota_exhausted(exc):
+                continue
+            raise
+
+    if _is_quota_exhausted(last_error or Exception()):
+        return (
+            "## Verdict\n\n"
+            "The research agents completed their work, but Gemini is currently over quota, "
+            "so the final synthesis could not be generated. Please retry after the quota "
+            "window resets or switch to a Gemini model with available quota.\n\n"
+            "## Agent outputs available\n\n"
+            "Open **Behind the Scenes: AI Agent Debate** below to inspect the Critic, "
+            "Summarizer, and Extractor results that were collected.",
+            "",
+        )
+
+    raise RuntimeError(str(last_error) if last_error else "Gemini synthesis failed.")
+
+
+async def run_moa_shopper_reply(
+    message: str,
+    history: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Run the two-layer Mixture-of-Agents shopping pipeline.
+
+    Layer 0 gathers YouTube review evidence with parallel transcript extraction.
+    Layer 1 concurrently asks three specialized OpenRouter models to critique,
+    summarize, and extract objective specs from that evidence.
+    Layer 2 asks Gemini to resolve the agent outputs into one polished answer.
+    """
+
+    cleaned_message = re.sub(r"\s+", " ", (message or "").strip())
+    if not cleaned_message:
+        raise ValueError("A non-empty message is required.")
+
+    should_fetch_fresh_research = _should_fast_path_research(cleaned_message, history)
+    if should_fetch_fresh_research:
+        research_payload = await asyncio.to_thread(fetch_youtube_reviews, cleaned_message)
+        research_payload["fresh_search"] = True
+    else:
+        research_payload = _build_history_research_payload(cleaned_message, history)
+
+    layer1 = await _run_layer1_agents(cleaned_message, research_payload, history)
+    final_recommendation, synthesis_model = await asyncio.to_thread(
+        _synthesize_moa_with_gemini,
+        cleaned_message,
+        research_payload,
+        layer1,
+        history,
+    )
+
+    return {
+        "final_recommendation": final_recommendation,
+        "agent_breakdown": {
+            "critic": layer1.get("critic") or "",
+            "summarizer": layer1.get("summarizer") or "",
+            "extractor": layer1.get("extractor") or {},
+        },
+        "agent_breakdown_raw": {
+            "extractor": layer1.get("extractor_raw") or "",
+        },
+        "sources": research_payload.get("sources") or [],
+        "research": {
+            "query": research_payload.get("query") or cleaned_message,
+            "video_count": research_payload.get("video_count") or 0,
+            "transcript_count": research_payload.get("transcript_count") or 0,
+            "research_note": research_payload.get("research_note") or "",
+            "cache_hit": bool(research_payload.get("cache_hit")),
+            "fresh_search": bool(research_payload.get("fresh_search")),
+        },
+        "models": {
+            "critic": LAYER1_AGENTS["critic"]["model"],
+            "summarizer": LAYER1_AGENTS["summarizer"]["model"],
+            "extractor": LAYER1_AGENTS["extractor"]["model"],
+            "synthesizer": synthesis_model,
+        },
+    }
 
 
 def _to_chat_history(

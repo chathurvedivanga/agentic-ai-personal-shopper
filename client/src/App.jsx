@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import ChatBubble from "./components/ChatBubble";
 import PromptComposer from "./components/PromptComposer";
 import SessionSidebar from "./components/SessionSidebar";
-import { consumeSseEvents, parseJsonPayload } from "./lib/sse";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 const SIDEBAR_STORAGE_KEY = "shopper-sidebar-collapsed";
@@ -53,6 +52,8 @@ function hydrateMessages(serverMessages) {
     id: message.id || makeId(),
     role: message.role,
     content: message.content || "",
+    finalRecommendation: message.final_recommendation || message.content || "",
+    agentBreakdown: message.agent_breakdown || null,
     sources: Array.isArray(message.sources) ? message.sources : [],
     pending: false,
     error: false,
@@ -165,22 +166,6 @@ export default function App() {
     setMessages((current) =>
       current.map((message) => (message.id === messageId ? updater(message) : message))
     );
-  }
-
-  function appendAssistantChunk(messageId, text) {
-    patchMessage(messageId, (message) => ({
-      ...message,
-      content: `${message.content || ""}${text}`,
-      pending: true,
-      error: false
-    }));
-  }
-
-  function setAssistantSources(messageId, sources) {
-    patchMessage(messageId, (message) => ({
-      ...message,
-      sources
-    }));
   }
 
   function finishAssistantMessage(messageId) {
@@ -296,6 +281,8 @@ export default function App() {
         id: assistantMessageId,
         role: "assistant",
         content: "",
+        finalRecommendation: "",
+        agentBreakdown: null,
         sources: [],
         pending: true,
         error: false,
@@ -304,7 +291,7 @@ export default function App() {
     ]);
     setInput("");
     setBannerError("");
-    setStatusText("Agent is evaluating whether fresh review research is needed...");
+    setStatusText("Multiple Agents are researching and debating...");
     setIsSubmitting(true);
     setIsMobileSidebarOpen(false);
 
@@ -316,7 +303,7 @@ export default function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Accept: "text/event-stream"
+          Accept: "application/json"
         },
         credentials: "include",
         body: JSON.stringify({
@@ -327,76 +314,32 @@ export default function App() {
         signal: controller.signal
       });
 
-      if (!response.ok || !response.body) {
+      if (!response.ok) {
         const details = await response.text();
-        throw new Error(details || "The backend did not return a stream.");
+        throw new Error(details || "The backend could not complete the MoA request.");
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const parsed = consumeSseEvents(buffer);
-        buffer = parsed.remainder;
-
-        for (const event of parsed.events) {
-          const payload = parseJsonPayload(event.data);
-
-          if (event.event === "session") {
-            const session = payload.session;
-            if (session?.id) {
-              resolvedSessionId = session.id;
-              setActiveSessionId(session.id);
-              setSessions((current) => upsertSession(current, session));
-            }
-            continue;
-          }
-
-          if (event.event === "status") {
-            setStatusText(payload.message || "Agent is working...");
-            continue;
-          }
-
-          if (event.event === "sources") {
-            setAssistantSources(assistantMessageId, payload.items || []);
-            continue;
-          }
-
-          if (event.event === "chunk") {
-            setStatusText("");
-            appendAssistantChunk(assistantMessageId, payload.text || "");
-            continue;
-          }
-
-          if (event.event === "error") {
-            setStatusText("");
-            failAssistantMessage(assistantMessageId, payload.message || "Unknown error.");
-            setBannerError(payload.message || "The assistant failed to finish the response.");
-            continue;
-          }
-
-          if (event.event === "done") {
-            setStatusText("");
-            finishAssistantMessage(assistantMessageId);
-            if (payload.session) {
-              setSessions((current) => upsertSession(current, payload.session));
-            }
-          }
-        }
+      const payload = await response.json();
+      const session = payload.session;
+      if (session?.id) {
+        resolvedSessionId = session.id;
+        setActiveSessionId(session.id);
+        setSessions((current) => upsertSession(current, session));
       }
 
-      finishAssistantMessage(assistantMessageId);
+      patchMessage(assistantMessageId, (message) => ({
+        ...message,
+        content: payload.final_recommendation || "",
+        finalRecommendation: payload.final_recommendation || "",
+        agentBreakdown: payload.agent_breakdown || null,
+        sources: Array.isArray(payload.sources) ? payload.sources : [],
+        pending: false,
+        error: false
+      }));
     } catch (error) {
       if (error.name !== "AbortError") {
         const message =
-          error.message || "Network error while streaming the assistant response.";
+          error.message || "Network error while running the multi-agent response.";
         failAssistantMessage(assistantMessageId, message);
         setBannerError(message);
       } else {

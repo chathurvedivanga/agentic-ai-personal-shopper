@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import json
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
-from flask import Flask, Response, g, jsonify, request, stream_with_context
+from flask import Flask, Response, g, jsonify, request
 from flask_cors import CORS
 
-from agent import generate_chat_title, stream_shopper_reply
+from agent import generate_chat_title, run_moa_shopper_reply
 from storage import (
-    add_message,
+    add_moa_message,
     count_user_messages,
     create_session,
     delete_session,
@@ -55,11 +54,6 @@ CORS(
         }
     },
 )
-
-
-def _sse(event: str, data: dict) -> str:
-    payload = json.dumps(data, ensure_ascii=False)
-    return f"event: {event}\ndata: {payload}\n\n"
 
 
 def _normalize_viewer_id(raw_value: str) -> str:
@@ -161,7 +155,7 @@ def session_delete(session_id: str):
 
 
 @app.post("/api/chat")
-def chat():
+async def chat():
     payload = request.get_json(silent=True) or {}
     message = (payload.get("message") or "").strip()
     history = payload.get("history") or []
@@ -181,84 +175,55 @@ def chat():
         session = create_session(g.viewer_id)
         session_id = session["id"]
 
-    add_message(session_id, "user", message)
+    try:
+        result = await run_moa_shopper_reply(message=message, history=history)
+    except Exception as exc:  # pragma: no cover - final guard rail
+        return (
+            jsonify(
+                {
+                    "error": str(exc)
+                    or "The server hit an unexpected error while running the MoA pipeline."
+                }
+            ),
+            500,
+        )
+
+    saved_turn = add_moa_message(
+        session_id=session_id,
+        user_query=message,
+        layer1_critic=result["agent_breakdown"].get("critic", ""),
+        layer1_summarizer=result["agent_breakdown"].get("summarizer", ""),
+        layer1_extractor=result["agent_breakdown"].get("extractor", {}),
+        final_synthesis=result["final_recommendation"],
+        sources=result.get("sources", []),
+    )
     is_first_user_message = count_user_messages(session_id) == 1
 
-    def generate():
-        assistant_parts: list[str] = []
-        assistant_sources: list[dict] = []
-        assistant_saved = False
-        title_generation_scheduled = False
+    if is_first_user_message:
+        source_titles = [
+            source.get("title", "")
+            for source in result.get("sources", [])[:4]
+            if source.get("title")
+        ]
+        _schedule_title_generation(
+            session_id,
+            g.viewer_id,
+            message,
+            assistant_text=result["final_recommendation"],
+            source_titles=source_titles,
+        )
 
-        def maybe_schedule_title_generation(assistant_text: str) -> None:
-            nonlocal title_generation_scheduled
-            if not is_first_user_message or title_generation_scheduled or not assistant_text:
-                return
-            source_titles = [
-                source.get("title", "")
-                for source in assistant_sources[:4]
-                if source.get("title")
-            ]
-            _schedule_title_generation(
-                session_id,
-                g.viewer_id,
-                message,
-                assistant_text=assistant_text,
-                source_titles=source_titles,
-            )
-            title_generation_scheduled = True
-
-        yield _sse("session", {"session": get_session_summary(session_id, g.viewer_id)})
-
-        try:
-            for event in stream_shopper_reply(message=message, history=history):
-                if event["event"] == "chunk":
-                    assistant_parts.append(event["data"].get("text", ""))
-                elif event["event"] == "sources":
-                    assistant_sources = event["data"].get("items", [])
-                elif event["event"] == "done" and not assistant_saved:
-                    assistant_text = "".join(assistant_parts).strip()
-                    if assistant_text:
-                        add_message(
-                            session_id,
-                            "assistant",
-                            assistant_text,
-                            sources=assistant_sources,
-                        )
-                        assistant_saved = True
-                        maybe_schedule_title_generation(assistant_text)
-                    event["data"]["session"] = get_session_summary(session_id, g.viewer_id)
-                yield _sse(event["event"], event["data"])
-        except Exception as exc:  # pragma: no cover - final guard rail
-            yield _sse(
-                "error",
-                {
-                    "message": str(exc)
-                    or "The server hit an unexpected error while streaming the reply."
-                },
-            )
-            yield _sse("done", {"ok": False})
-        finally:
-            assistant_text = "".join(assistant_parts).strip()
-            if assistant_text and not assistant_saved:
-                add_message(
-                    session_id,
-                    "assistant",
-                    assistant_text,
-                    sources=assistant_sources,
-                )
-                maybe_schedule_title_generation(assistant_text)
-
-    headers = {
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no",
-    }
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers=headers,
+    session = get_session_summary(session_id, g.viewer_id)
+    return jsonify(
+        {
+            "session": session,
+            "message": saved_turn,
+            "final_recommendation": result["final_recommendation"],
+            "agent_breakdown": result["agent_breakdown"],
+            "sources": result.get("sources", []),
+            "research": result.get("research", {}),
+            "models": result.get("models", {}),
+        }
     )
 
 
