@@ -79,7 +79,7 @@ LAYER1_AGENTS = {
         ),
     },
     "extractor": {
-        "model": "openai/gpt-oss-20b",
+        "model": "meta-llama/llama-3.1-8b-instant",
         "prompt": (
             "You are a strict data extractor. Read the transcript, query, and video metadata. "
             "Extract EVERY technical specification, brand, model, and hard fact mentioned. "
