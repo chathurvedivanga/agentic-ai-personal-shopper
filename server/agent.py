@@ -951,8 +951,7 @@ async def run_moa_shopper_reply(
         research_payload = _build_history_research_payload(cleaned_message, history)
 
     layer1 = await _run_layer1_agents(cleaned_message, research_payload, history)
-    final_recommendation, synthesis_model = await asyncio.to_thread(
-        _synthesize_moa_with_gemini,
+    final_recommendation, synthesis_model = await _synthesize_moa_with_gemini(
         cleaned_message,
         research_payload,
         layer1,
