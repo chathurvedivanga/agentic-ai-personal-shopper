@@ -74,21 +74,25 @@ LAYER1_AGENTS = {
         "model": "qwen/qwen3-32b",
         "prompt": (
             "You are a product summarizer. Read the transcript and query. "
-            "Output a concise bulleted list of the top 3 best features mentioned."
+            "Output a concise bulleted list of the top 3 best features mentioned. "
+            "Return ONLY the bulleted list. Do NOT include any internal monologue, "
+            "reasoning, or tags like <think>."
         ),
     },
     "extractor": {
         "model": "openai/gpt-oss-20b",
         "prompt": (
-            "You are a strict data extractor. Read the transcript and extract EVERY technical "
-            "specification or hard fact mentioned (such as processor, RAM, screen size, "
-            "price, weight, camera specs, battery, etc.).\n"
+            "You are a strict data extractor. Read the transcript, query, and video metadata. "
+            "Extract EVERY technical specification, brand, model, and hard fact mentioned. "
+            "Be exhaustive. If transcripts are missing or thin, use the video titles and channel "
+            "metadata to extract as much information as possible.\n"
             "Output ONLY a valid JSON object where the keys are the name of the specification "
             "and the values are the extracted data. Do not include markdown formatting. "
             "Keep values concise. Do not guess; only include what is explicitly stated."
         ),
     },
 }
+
 FAST_PATH_RESEARCH_CUES = (
     "recommend",
     "best",
@@ -105,6 +109,7 @@ FAST_PATH_RESEARCH_CUES = (
     "looking for",
     "need a",
 )
+
 FOLLOW_UP_RESEARCH_CUES = (
     "first one",
     "second one",
@@ -126,10 +131,12 @@ FOLLOW_UP_RESEARCH_CUES = (
     "how is",
     "how's",
 )
+
 WATCH_AMBIGUITY_PATTERN = re.compile(r"\bwatches?\b")
 WATCH_TYPE_PATTERN = re.compile(
     r"\b(smart ?watch|analog watch|analogue watch|mechanical watch|digital watch|fitness watch)\b"
 )
+
 _RESEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
 _RESEARCH_CACHE_LOCK = Lock()
 TITLE_STOPWORDS = {
@@ -262,88 +269,6 @@ def _is_quota_exhausted(exc: Exception) -> bool:
         or "rate limit" in message
         or "429" in message
     )
-
-
-def _fallback_title(seed_text: str) -> str:
-    cleaned = re.sub(r"\s+", " ", seed_text).strip()
-    cleaned = re.sub(r"[^\w\s₹./,+-]", "", cleaned).strip()
-    words = [
-        word
-        for word in cleaned.split()
-        if word.lower()
-        not in {
-            "a",
-            "an",
-            "best",
-            "buy",
-            "can",
-            "compare",
-            "find",
-            "for",
-            "help",
-            "i",
-            "looking",
-            "me",
-            "need",
-            "please",
-            "recommend",
-            "search",
-            "show",
-            "suggest",
-            "the",
-            "what",
-            "which",
-        }
-    ]
-    if not words:
-        return "New chat"
-    title = " ".join(words[:6]).title()
-    return title[:TITLE_MAX_LENGTH].strip() or "New chat"
-
-
-def _clean_title(raw_text: str, seed_text: str) -> str:
-    title = raw_text.strip().splitlines()[0].strip()
-    title = title.strip("`\"'*-: ")
-    title = re.sub(r"\s+", " ", title)
-    if not title:
-        return _fallback_title(seed_text)
-    return title[:TITLE_MAX_LENGTH].strip() or _fallback_title(seed_text)
-
-
-def generate_chat_title(seed_text: str) -> str:
-    prompt = f"""
-Create a short chat title for this shopping conversation.
-
-Requirements:
-- 3 to 6 words
-- title case
-- no quotes
-- no punctuation unless needed for a product name
-- focus on the buyer intent, product category, and budget if present
-
-User message:
-{seed_text}
-
-Return only the title.
-""".strip()
-
-    for model_name in _candidate_models():
-        try:
-            model = _build_model(model_name, system_instruction="You create concise chat titles.")
-            response = model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.0,
-                    "max_output_tokens": 18,
-                },
-            )
-            return _clean_title(getattr(response, "text", "") or "", seed_text)
-        except Exception as exc:
-            if _is_model_not_found(exc) or _is_quota_exhausted(exc):
-                continue
-            break
-
-    return _fallback_title(seed_text)
 
 
 def _format_indian_number_for_title(value: int) -> str:
@@ -810,13 +735,18 @@ async def _call_groq_agent(
 
             response.raise_for_status()
             data = response.json()
-            return (
+            content = (
                 data.get("choices", [{}])[0]
                 .get("message", {})
                 .get("content", "")
                 .strip()
-                or f"{agent_name.title()} returned an empty response."
             )
+            
+            # Robustly strip internal reasoning blocks (e.g. <think>...</think>)
+            if content:
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE).strip()
+
+            return content or f"{agent_name.title()} returned an empty response."
         except httpx.TimeoutException:
             if attempt < max_retries - 1:
                 continue
@@ -950,7 +880,7 @@ Layer 1 extractor JSON:
 """.strip()
 
 
-def _synthesize_moa_with_gemini(
+async def _synthesize_moa_with_gemini(
     query: str,
     research_payload: Dict[str, Any],
     layer1: Dict[str, Any],
