@@ -60,9 +60,10 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 #
 GROQ_TIMEOUT_SECONDS = 10.0
 OPENROUTER_APP_TITLE = "AI Shopping Partner"
+
 LAYER1_AGENTS = {
     "critic": {
-        "model": "llama-3.1-8b-instant",
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
         "prompt": (
             "You are a critical product reviewer. Read the transcript and query. "
             "In one short paragraph, highlight only the major flaws, missing features, "
@@ -70,14 +71,14 @@ LAYER1_AGENTS = {
         ),
     },
     "summarizer": {
-        "model": "llama-3.1-8b-instant",
+        "model": "qwen/qwen3-32b",
         "prompt": (
             "You are a product summarizer. Read the transcript and query. "
             "Output a concise bulleted list of the top 3 best features mentioned."
         ),
     },
     "extractor": {
-        "model": "llama-3.1-8b-instant",
+        "model": "openai/gpt-oss-20b",
         "prompt": (
             "You are a strict data extractor. Read the transcript and extract EVERY technical "
             "specification or hard fact mentioned (such as processor, RAM, screen size, "
