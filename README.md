@@ -63,7 +63,7 @@ python app.py
 ```
 
 The Flask API will be available at `http://localhost:5000`.
-Saved chats are stored locally in SQLite and appear in the left sidebar.
+Saved chats are stored in SQLite when `DATABASE_URL` is empty, or in Neon Postgres when `DATABASE_URL` is set.
 
 ## Frontend Setup
 
@@ -79,7 +79,8 @@ The Vite app will run at `http://localhost:5173`.
 
 - Backend: `gunicorn app:app`
 - Frontend: `npm run build`
-- If you deploy the frontend separately, set `VITE_API_BASE_URL` and `CORS_ORIGIN` accordingly.
+- Neon is the database provider only. It does not host the Flask backend or React frontend.
+- If you deploy the frontend/backend later on another platform, set `DATABASE_URL`, `VITE_API_BASE_URL`, and `CORS_ORIGIN` accordingly.
 
 ## GitHub Setup
 
@@ -98,26 +99,11 @@ git remote add origin https://github.com/<your-username>/<your-repo>.git
 git push -u origin main
 ```
 
-## Free Deployment
+## Neon Postgres 17 Setup
 
-The cleanest free path for this codebase is:
+Neon is used as the persistent database for saved chats, session titles, and MoA agent outputs.
 
-- Render web service for the Flask backend
-- Render static site for the Vite frontend
-
-This repo includes a root `render.yaml` so Render can import both services from the same GitHub repository.
-
-### Backend Service
-
-Render settings if you create it manually:
-
-- Service type: `Web Service`
-- Root Directory: `server`
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `gunicorn app:app --worker-class gthread --threads 8 --timeout 120 --bind 0.0.0.0:$PORT`
-- Health Check Path: `/api/health`
-
-Backend environment variables:
+Backend environment variables for Neon-backed storage:
 
 ```env
 GEMINI_API_KEY=your_google_ai_studio_key
@@ -125,54 +111,29 @@ GEMINI_MODEL=gemini-2.5-flash
 GEMINI_FALLBACK_MODELS=gemini-2.0-flash,gemini-flash-latest
 OPENROUTER_API_KEY=your_openrouter_key
 OPENROUTER_APP_TITLE=AI Shopping Partner
-OPENROUTER_HTTP_REFERER=https://your-frontend-domain.onrender.com
-CORS_ORIGIN=https://your-frontend-domain.onrender.com
+OPENROUTER_HTTP_REFERER=http://localhost:5173
+CORS_ORIGIN=http://localhost:5173
 DATABASE_URL=postgresql://user:password@ep-example.region.aws.neon.tech/dbname?sslmode=require
 ```
 
-### Frontend Service
+Setup steps:
 
-Render settings if you create it manually:
+1. In Neon, copy your pooled or direct PostgreSQL connection string.
+2. Paste it into `server/.env` as `DATABASE_URL`.
+3. Make sure it includes `sslmode=require`.
+4. Start the Flask backend with `python app.py`.
+5. Start the React frontend with `npm run dev` from `client`.
 
-- Service type: `Static Site`
-- Root Directory: `client`
-- Build Command: `npm install && npm run build`
-- Publish Directory: `dist`
+The app creates the required tables automatically on startup:
 
-Frontend environment variable:
-
-```env
-VITE_API_BASE_URL=https://your-backend-domain.onrender.com
-```
-
-### Render Blueprint Notes
-
-If you deploy using the included `render.yaml`, Render auto-wires:
-
-- `VITE_API_BASE_URL` from the backend service's `RENDER_EXTERNAL_URL`
-- `CORS_ORIGIN` from the frontend service's `RENDER_EXTERNAL_URL`
-- `OPENROUTER_HTTP_REFERER` from the frontend service's `RENDER_EXTERNAL_URL`
-- `DATABASE_URL` is marked as a secret value; paste your Neon Postgres connection string into the backend service environment
-
-The backend also accepts comma-separated CORS origins and falls back to permissive CORS on Render if no origin is injected, which helps prevent first-deploy CORS failures.
+- `sessions`
+- `messages`
+- `moa_messages`
 
 ### Storage Model
 
-- Local development uses SQLite by default through `DB_PATH=agentic_shopper.db`
-- Production uses `DATABASE_URL` and stores chat history in Neon Postgres 17
-
-This lets you keep lightweight local setup while avoiding ephemeral filesystem issues in deployment.
-
-### Neon Postgres Setup
-
-Use Neon as the production database by setting the backend `DATABASE_URL` environment variable.
-
-1. In Neon, copy the pooled or direct PostgreSQL connection string.
-2. Make sure the URL includes `sslmode=require`.
-3. In Render, open the backend service `agentic-ai-personal-shopper-api`.
-4. Go to **Environment**.
-5. Add or update `DATABASE_URL` with the Neon connection string.
-6. Save changes and redeploy the backend service.
+- `DATABASE_URL` set: chat history is stored in Neon Postgres 17.
+- `DATABASE_URL` empty: local development falls back to SQLite through `DB_PATH=agentic_shopper.db`.
 
 Do not paste the real Neon connection string into GitHub, `README.md`, or `.env.example`.
 

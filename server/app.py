@@ -68,7 +68,7 @@ def _normalize_viewer_id(raw_value: str) -> str:
 
 
 def _cookie_settings() -> dict:
-    secure = os.getenv("RENDER", "").lower() == "true" or request.is_secure
+    secure = os.getenv("FORCE_SECURE_COOKIES", "").lower() in {"1", "true", "yes"} or request.is_secure
     return {
         "httponly": True,
         "max_age": VIEWER_COOKIE_MAX_AGE,
