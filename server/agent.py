@@ -63,7 +63,7 @@ OPENROUTER_APP_TITLE = "AI Shopping Partner"
 
 LAYER1_AGENTS = {
     "critic": {
-        "model": "llama-3.1-70b-versatile",
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
         "prompt": (
             "You are a critical product reviewer. Read the transcript and query. "
             "In one short paragraph, highlight only the major flaws, missing features, "
@@ -71,7 +71,7 @@ LAYER1_AGENTS = {
         ),
     },
     "summarizer": {
-        "model": "gemma2-9b-it",
+        "model": "qwen/qwen3-32b",
         "prompt": (
             "You are a product summarizer. Read the transcript and query. "
             "Output a concise bulleted list of the top 3 best features mentioned. "
@@ -80,14 +80,14 @@ LAYER1_AGENTS = {
         ),
     },
     "extractor": {
-        "model": "mixtral-8x7b-32768",
+        "model": "openai/gpt-oss-20b",
         "prompt": (
             "You are a strict data extractor. Read the transcript, query, and video metadata. "
             "Extract EVERY technical specification, brand, model, and hard fact mentioned. "
             "Be exhaustive. If transcripts are missing or thin, use the video titles and channel "
             "metadata to extract as much information as possible.\n"
-            "Output ONLY a valid JSON object where the keys are the name of the specification "
-            "and the values are the extracted data. Do not include markdown formatting. "
+            "Return ONLY a valid JSON object. Do NOT include any internal monologue, "
+            "reasoning, or tags like <think>. Do not include markdown formatting. "
             "Keep values concise. Do not guess; only include what is explicitly stated."
         ),
     },
@@ -744,7 +744,10 @@ async def _call_groq_agent(
             
             # Robustly strip internal reasoning blocks (e.g. <think>...</think>)
             if content:
-                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE).strip()
+                stripped = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE).strip()
+                if not stripped and content.strip():
+                     return f"{agent_name.title()} output was entirely removed by the reasoning filter. Raw response: {content[:200]}..."
+                content = stripped
 
             return content or f"{agent_name.title()} returned an empty response."
         except httpx.TimeoutException:
