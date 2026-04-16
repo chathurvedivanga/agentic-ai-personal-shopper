@@ -772,7 +772,7 @@ async def _call_openrouter_agent(
     if not api_key:
         return (
             "OpenRouter API key is not configured, so this Layer 1 agent could not run. "
-            "Add OPENROUTER_API_KEY in your environment or server/.env to enable the full MoA debate."
+            "Add OPENROUTER_API_KEY in Render and server/.env to enable the full MoA debate."
         )
 
     headers = {

@@ -127,7 +127,7 @@ def _engine() -> Engine:
         connect_args["check_same_thread"] = False
     else:
         # Neon serverless connections can be recycled after idle periods.
-        # Pre-ping plus recycle keeps hosted workers from holding stale sockets.
+        # Pre-ping plus recycle keeps Render workers from holding stale sockets.
         engine_options.update(
             {
                 "pool_recycle": 300,
