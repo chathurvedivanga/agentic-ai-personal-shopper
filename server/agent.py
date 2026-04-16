@@ -771,6 +771,7 @@ async def _call_groq_agent(
     agent_name: str,
     agent_config: Dict[str, str],
     user_payload: str,
+    max_retries: int = 3,
 ) -> str:
     api_key = (os.getenv("GROQ_API_KEY") or "").strip()
     if not api_key:
@@ -782,11 +783,7 @@ async def _call_groq_agent(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "X-Title": os.getenv("OPENROUTER_APP_TITLE", OPENROUTER_APP_TITLE),
     }
-    referer = (os.getenv("OPENROUTER_HTTP_REFERER") or "").strip()
-    if referer:
-        headers["HTTP-Referer"] = referer
 
     payload = {
         "model": agent_config["model"],
@@ -798,24 +795,41 @@ async def _call_groq_agent(
         "max_tokens": 700,
     }
 
-    try:
-        response = await client.post(GROQ_API_URL, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-            or f"{agent_name.title()} returned an empty response."
-        )
-    except httpx.TimeoutException:
-        return f"{agent_name.title()} timed out after {int(GROQ_TIMEOUT_SECONDS)} seconds."
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code
-        return f"{agent_name.title()} failed with Groq HTTP {status_code}."
-    except Exception as exc:
-        return f"{agent_name.title()} failed: {str(exc) or 'Unknown Groq error.'}"
+    last_status = 0
+    for attempt in range(max_retries):
+        try:
+            response = await client.post(GROQ_API_URL, headers=headers, json=payload)
+            
+            if response.status_code == 429:
+                last_status = 429
+                # Exponential backoff: 2s, 4s, 8s...
+                wait_time = 2.0 * (2 ** attempt)
+                await asyncio.sleep(wait_time)
+                continue
+
+            response.raise_for_status()
+            data = response.json()
+            return (
+                data.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+                .strip()
+                or f"{agent_name.title()} returned an empty response."
+            )
+        except httpx.TimeoutException:
+            if attempt < max_retries - 1:
+                continue
+            return f"{agent_name.title()} timed out after {int(GROQ_TIMEOUT_SECONDS)} seconds."
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                continue
+            return f"{agent_name.title()} failed with Groq HTTP {exc.response.status_code}."
+        except Exception as exc:
+            return f"{agent_name.title()} failed: {str(exc) or 'Unknown Groq error.'}"
+
+    if last_status == 429:
+        return f"{agent_name.title()} failed with Groq HTTP 429 after {max_retries} attempts. Rate limit exceeded."
+    return f"{agent_name.title()} failed after {max_retries} attempts."
 
 
 def _strip_json_markdown(raw_text: str) -> str:
