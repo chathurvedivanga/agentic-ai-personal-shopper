@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agentic AI Personal Shopper - Complete Project Documentation</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 16mm;
+      }
+
+      :root {
+        --ink: #1f2937;
+        --muted: #4b5563;
+        --line: #d7dde5;
+        --panel: #f8fafc;
+        --accent: #0f172a;
+        --brand: #b45309;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #eef2f7;
+        color: var(--ink);
+        font-family: "Segoe UI", Arial, sans-serif;
+        line-height: 1.6;
+      }
+
+      .document {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 20px auto;
+        background: #ffffff;
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+      }
+
+      .page {
+        padding: 18mm;
+      }
+
+      .cover {
+        min-height: 265mm;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .cover-hero {
+        border: 1px solid #e5e7eb;
+        background:
+          radial-gradient(circle at top left, rgba(245, 158, 11, 0.18), transparent 34%),
+          linear-gradient(135deg, #0f172a, #111827 42%, #1e293b 100%);
+        color: #f8fafc;
+        border-radius: 20px;
+        padding: 26px 28px;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: #fcd34d;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        margin: 0;
+        color: var(--accent);
+      }
+
+      .cover h1 {
+        color: #ffffff;
+        font-size: 34px;
+        line-height: 1.1;
+        margin-bottom: 14px;
+      }
+
+      .cover p.lead {
+        margin: 0;
+        max-width: 680px;
+        font-size: 16px;
+        color: rgba(248, 250, 252, 0.88);
+      }
+
+      .meta-grid,
+      .summary-grid,
+      .two-col {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .meta-grid {
+        margin-top: 24px;
+      }
+
+      .summary-grid {
+        margin-top: 22px;
+      }
+
+      .meta-card,
+      .summary-card {
+        border-radius: 16px;
+        padding: 14px 16px;
+      }
+
+      .meta-card {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .summary-card {
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .meta-card strong,
+      .summary-card strong {
+        display: block;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+      }
+
+      .toc {
+        margin-top: 26px;
+        border-top: 1px solid var(--line);
+        padding-top: 18px;
+      }
+
+      .toc h2 {
+        font-size: 18px;
+        margin-bottom: 10px;
+      }
+
+      .toc ol {
+        margin: 0;
+        padding-left: 20px;
+        column-count: 2;
+        column-gap: 28px;
+      }
+
+      .toc li {
+        margin-bottom: 5px;
+        break-inside: avoid;
+      }
+
+      .section {
+        margin-top: 28px;
+        page-break-inside: avoid;
+      }
+
+      .section h2 {
+        font-size: 22px;
+        padding-bottom: 6px;
+        border-bottom: 2px solid #e5e7eb;
+        margin-bottom: 14px;
+      }
+
+      .section h3 {
+        font-size: 16px;
+        margin-top: 18px;
+        margin-bottom: 8px;
+      }
+
+      .section h4 {
+        font-size: 13px;
+        margin-top: 14px;
+        margin-bottom: 6px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      p,
+      li,
+      td,
+      th {
+        font-size: 12px;
+      }
+
+      p {
+        margin: 0 0 10px;
+      }
+
+      ul,
+      ol {
+        margin: 8px 0 12px 20px;
+      }
+
+      li {
+        margin-bottom: 4px;
+      }
+
+      .stack-table,
+      .feature-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+
+      .stack-table th,
+      .stack-table td,
+      .feature-table th,
+      .feature-table td {
+        border: 1px solid var(--line);
+        padding: 9px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .stack-table th,
+      .feature-table th {
+        background: #f3f4f6;
+      }
+
+      .callout {
+        margin: 14px 0;
+        padding: 14px 16px;
+        border-left: 4px solid var(--brand);
+        border-radius: 12px;
+        background: #fffbeb;
+      }
+
+      .code-block {
+        margin: 12px 0;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #0f172a;
+        color: #e5eefb;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 11px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+      }
+
+      .issue-card {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px 16px;
+        background: #ffffff;
+        margin-bottom: 12px;
+        break-inside: avoid;
+      }
+
+      .issue-card h4 {
+        margin-top: 0;
+        color: var(--accent);
+        text-transform: none;
+        letter-spacing: normal;
+        font-size: 14px;
+      }
+
+      .label {
+        font-weight: 700;
+        color: var(--accent);
+      }
+
+      .screens {
+        display: grid;
+        gap: 16px;
+        margin-top: 12px;
+      }
+
+      .shot {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 12px;
+      }
+
+      .shot img {
+        width: 100%;
+        border-radius: 10px;
+        display: block;
+      }
+
+      .shot p,
+      .footer-note {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .footer-note {
+        margin-top: 22px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+      }
+
+      @media print {
+        body {
+          background: #ffffff;
+        }
+
+        .document {
+          margin: 0;
+          box-shadow: none;
+        }
+
+        .page-break {
+          page-break-before: always;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="document">
+      <section class="page cover">
+        <div>
+          <div class="cover-hero">
+            <p class="eyebrow">Complete Project Documentation</p>
+            <h1>Agentic AI Personal Shopper</h1>
+            <p class="lead">
+              A full-stack AI shopping assistant built with React, Flask, Gemini, and
+              YouTube transcript research, designed to provide conversational product
+              recommendations, comparisons, follow-up answers, and persistent chat history.
+            </p>
+
+            <div class="meta-grid">
+              <div class="meta-card">
+                <strong>Project Label</strong>
+                AI Shopping Partner / Agentic AI Personal Shopper
+              </div>
+              <div class="meta-card">
+                <strong>Completion State</strong>
+                Fully implemented, deployed, and publicly accessible on Render
+              </div>
+              <div class="meta-card">
+                <strong>Stack</strong>
+                React, Vite, Tailwind CSS, Flask, Gemini, YouTube transcript research
+              </div>
+              <div class="meta-card">
+                <strong>Deployment</strong>
+                GitHub + Render Static Site + Render Web Service + Render Postgres
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <article class="summary-card">
+              <strong>Primary Goal</strong>
+              Build a modular shopping assistant that researches products using YouTube
+              reviews, synthesizes verdicts with Gemini, streams responses live, and lets
+              users revisit saved chats later.
+            </article>
+            <article class="summary-card">
+              <strong>Final Outcome</strong>
+              A dark-themed public website with live AI research, saved sessions, smart
+              auto-titling, browser-private chats, and Render deployment backed by Postgres.
+            </article>
+          </div>
+
+          <div class="toc">
+            <h2>Table of Contents</h2>
+            <ol>
+              <li>Project Objective</li>
+              <li>Initial Scope and Core Requirements</li>
+              <li>Final Project Architecture</li>
+              <li>Backend Development Journey</li>
+              <li>Frontend Development Journey</li>
+              <li>Persistence and Session Management</li>
+              <li>Deployment Journey</li>
+              <li>Major Problems and Solutions</li>
+              <li>Final Feature Set</li>
+              <li>End-to-End System Flow</li>
+              <li>Final Deployment State</li>
+              <li>Known Limitations</li>
+              <li>Key Engineering Decisions</li>
+              <li>Final Outcome</li>
+              <li>Closing Summary</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          Prepared as a complete submission-style record of the design, implementation,
+          iteration, debugging, deployment, and final state of the project.
+        </div>
+      </section>
+
+      <section class="page page-break">
+        <section class="section">
+          <h2>1. Project Objective</h2>
+          <p>
+            The objective of this project was to build a full-stack
+            <strong>AI-powered personal shopping assistant</strong> with a conversational
+            interface similar to ChatGPT, Gemini, Claude, or Copilot. Instead of acting
+            like a static product catalog, the website needed to behave like an intelligent
+            assistant that could understand natural language shopping requests, research
+            product categories, summarize review evidence, compare alternatives, and answer
+            follow-up questions within the same thread.
+          </p>
+          <p>The website was required to:</p>
+          <ul>
+            <li>Accept natural language shopping prompts from users</li>
+            <li>Research products using YouTube review videos</li>
+            <li>Extract transcripts automatically from those videos</li>
+            <li>Synthesize verdicts, pros, cons, and comparisons using Gemini</li>
+            <li>Stream answers back to the user in real time</li>
+            <li>Save past chats for future reference</li>
+            <li>Present the experience through a polished, modern user interface</li>
+            <li>Be deployable publicly and function as a real web product</li>
+          </ul>
+
+          <table class="stack-table">
+            <thead>
+              <tr>
+                <th>Layer</th>
+                <th>Technology Chosen</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Frontend</td>
+                <td>React + Vite + Tailwind CSS + react-markdown</td>
+                <td>Fast UI development, SPA flow, clean styling, markdown rendering</td>
+              </tr>
+              <tr>
+                <td>Backend</td>
+                <td>Python Flask</td>
+                <td>Lightweight REST API, simple SSE streaming, modular server logic</td>
+              </tr>
+              <tr>
+                <td>LLM</td>
+                <td>Google Gemini via <code>google-generativeai</code></td>
+                <td>Streaming generation, tool calling, good summarization quality</td>
+              </tr>
+              <tr>
+                <td>Evidence Source</td>
+                <td>YouTube reviews + transcripts</td>
+                <td>Rich qualitative review data without official YouTube Data API keys</td>
+              </tr>
+              <tr>
+                <td>Deployment</td>
+                <td>GitHub + Render + Postgres</td>
+                <td>Simple full-stack deployment with separate frontend and backend services</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section">
+          <h2>2. Initial Scope and Core Requirements</h2>
+          <h3>2.1 Backend Requirements</h3>
+          <ul>
+            <li>Use modular Python files: <code>app.py</code>, <code>agent.py</code>, <code>scraper.py</code></li>
+            <li>Expose a Flask API for the frontend</li>
+            <li>Build a fast intent router to decide whether fresh YouTube research was needed</li>
+            <li>Search top YouTube review videos dynamically</li>
+            <li>Extract transcripts in parallel using <code>ThreadPoolExecutor</code></li>
+            <li>Gracefully skip videos where transcript access was disabled or unavailable</li>
+            <li>Use SSE to stream Gemini output back to the browser</li>
+            <li>Frame the assistant as a friendly, expert personal shopper</li>
+          </ul>
+
+          <h3>2.2 Frontend Requirements</h3>
+          <ul>
+            <li>Build a modern chat-style user interface</li>
+            <li>Maintain conversation history on the client side</li>
+            <li>Receive streamed assistant output incrementally via SSE</li>
+            <li>Show live status messages while the agent performed research</li>
+            <li>Render formatted markdown cleanly for readable answers</li>
+          </ul>
+
+          <div class="callout">
+            The final product expanded beyond the original scope by adding saved chats,
+            session rename/delete, browser-private conversation isolation, production
+            database support, deployment automation, and multiple rounds of UI refinement.
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>3. Final Project Architecture</h2>
+          <p>The final project became a cleanly separated full-stack application.</p>
+          <div class="code-block">server/
+  app.py
+  agent.py
+  scraper.py
+  storage.py
+  requirements.txt
+
+client/
+  src/
+    App.jsx
+    index.css
+    main.jsx
+    components/
+      ChatBubble.jsx
+      PromptComposer.jsx
+      SessionSidebar.jsx
+    lib/
+      sse.js
+
+render.yaml
+README.md
+docs/</div>
+
+          <div class="two-col">
+            <article class="summary-card">
+              <strong>Backend Responsibilities</strong>
+              <ul>
+                <li><code>app.py</code>: Flask routes, SSE, session endpoints, cookies, CORS</li>
+                <li><code>agent.py</code>: Gemini orchestration, system prompt, tool logic, titles</li>
+                <li><code>scraper.py</code>: YouTube search, transcript retrieval, parallel processing</li>
+                <li><code>storage.py</code>: SQLite/Postgres persistence, ownership filtering</li>
+              </ul>
+            </article>
+            <article class="summary-card">
+              <strong>Frontend Responsibilities</strong>
+              <ul>
+                <li><code>App.jsx</code>: shell, chat state, session loading, SSE handling</li>
+                <li><code>SessionSidebar.jsx</code>: saved chats, rename/delete, collapse/drawer</li>
+                <li><code>PromptComposer.jsx</code>: input, send behavior, stop state</li>
+                <li><code>ChatBubble.jsx</code>: formatted answers, source chips, markdown rendering</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+      </section>
+
+      <section class="page page-break">
+        <section class="section">
+          <h2>4. Backend Development Journey</h2>
+          <h3>4.1 Flask API and SSE Streaming</h3>
+          <p>
+            The Flask backend was built around a streaming chat endpoint. The route
+            <code>POST /api/chat</code> accepts a user message, the current conversation
+            history, and an optional active session ID. It then performs research and
+            streams response events back as SSE packets.
+          </p>
+          <p>The backend emits structured events such as:</p>
+          <ul>
+            <li><code>session</code> for session metadata</li>
+            <li><code>status</code> for live progress updates</li>
+            <li><code>sources</code> for YouTube evidence links</li>
+            <li><code>chunk</code> for incremental response text</li>
+            <li><code>done</code> when generation finishes</li>
+            <li><code>error</code> if generation fails</li>
+          </ul>
+
+          <h3>4.2 Gemini Integration</h3>
+          <h4>Initial State</h4>
+          <p>
+            Gemini was initially used as the synthesis engine for transcript-backed shopping
+            recommendations, with streaming enabled for better user experience.
+          </p>
+
+          <h4>Model Compatibility Fixes</h4>
+          <p>During implementation, several Gemini model issues were encountered:</p>
+          <ul>
+            <li>older model names such as <code>gemini-1.5-flash</code> were not always available</li>
+            <li>free-tier quota was exhausted quickly on public usage</li>
+            <li>SDK-specific function-calling restrictions required careful configuration</li>
+          </ul>
+          <p>
+            To solve this, the backend added candidate model fallback logic, quota-aware
+            fallback behavior, and more resilient error handling.
+          </p>
+
+          <h4>Function Calling and Hybrid Routing</h4>
+          <p>
+            Initially, the backend over-fetched YouTube research for almost every prompt. That
+            was improved in two stages:
+          </p>
+          <ol>
+            <li>Gemini native tool calling was introduced via a YouTube research tool wrapper.</li>
+            <li>A later hybrid optimization bypassed the tool-decision step for clearly fresh shopping prompts to reduce latency.</li>
+          </ol>
+          <p>
+            The final system uses a hybrid approach: obvious new research requests fast-path into
+            YouTube lookup, while more ambiguous or follow-up queries can still use Gemini’s tool
+            selection behavior.
+          </p>
+
+          <h3>4.3 YouTube Search and Transcript Retrieval</h3>
+          <p>
+            The project intentionally stayed focused on YouTube review evidence. The scraper layer
+            handles query normalization, India-aware search phrasing, current-year enrichment,
+            candidate deduplication, and multiple transcript retrieval fallbacks.
+          </p>
+          <ul>
+            <li>manual captions vs generated captions</li>
+            <li>translation fallback to English where available</li>
+            <li>skip logic for disabled or missing transcripts</li>
+            <li>clean transcript truncation for Gemini efficiency</li>
+          </ul>
+
+          <h3>4.4 Parallel Transcript Extraction</h3>
+          <p>
+            Transcript extraction was built using <code>ThreadPoolExecutor</code>, allowing
+            multiple candidate videos to be processed in parallel. This reduced latency and made
+            the research stage more robust when some videos failed.
+          </p>
+
+          <h3>4.5 Research Cache</h3>
+          <p>
+            To avoid repeated work and reduce load on both YouTube retrieval and Gemini, a
+            short-lived in-memory research cache was added. Similar prompts can reuse recent
+            transcript-backed research instead of fetching from scratch every time.
+          </p>
+
+          <h3>4.6 Smarter Shopping Output</h3>
+          <p>The assistant prompt was refined over time so the output became:</p>
+          <ul>
+            <li>India-first and INR-aware</li>
+            <li>more specific about product models</li>
+            <li>less generic and less brand-only</li>
+            <li>better grounded in actual review evidence</li>
+            <li>more concise and buyer-friendly</li>
+          </ul>
+          <p>
+            Ambiguous prompts such as <code>watches under 5000</code> were specifically improved
+            so the model could clarify when needed rather than returning vague brand suggestions.
+          </p>
+        </section>
+      </section>
+
+      <section class="page page-break">
+        <section class="section">
+          <h2>5. Frontend Development Journey</h2>
+          <h3>5.1 Initial Chat Interface</h3>
+          <p>
+            The frontend started as a straightforward chat interface with user and assistant
+            bubbles, a prompt input, markdown rendering, and streamed output. Over time, it was
+            refined into a more product-grade interface.
+          </p>
+
+          <h3>5.2 Streaming Support</h3>
+          <p>
+            The frontend was built to consume Flask SSE streams incrementally. This included:
+          </p>
+          <ul>
+            <li>reading streamed chunks from the response body</li>
+            <li>parsing structured SSE events</li>
+            <li>updating assistant text chunk by chunk</li>
+            <li>showing source links separately</li>
+            <li>handling completion and failure cleanly</li>
+          </ul>
+
+          <h3>5.3 UI Modernization</h3>
+          <p>
+            The interface was redesigned multiple times to reduce clutter and better match modern
+            AI assistant websites. The final interface includes:
+          </p>
+          <ul>
+            <li>dark visual theme</li>
+            <li>centered landing state</li>
+            <li>minimal top bar</li>
+            <li>collapsible desktop sidebar</li>
+            <li>mobile sidebar drawer</li>
+            <li>clean message hierarchy and prompt composer</li>
+          </ul>
+
+          <h3>5.4 Better Interaction Design</h3>
+          <ul>
+            <li>Enter sends prompts</li>
+            <li>Shift+Enter inserts a new line</li>
+            <li>status text updates during research and drafting</li>
+            <li>source chips display linked YouTube evidence</li>
+            <li>the app title returns users to the home state</li>
+            <li>redundant toggles and duplicate controls were removed</li>
+          </ul>
+
+          <h3>5.5 Session Sidebar</h3>
+          <p>
+            A saved-chat sidebar was added so users could revisit earlier conversations. This
+            evolved into a full session workspace with active state, previews, collapse support,
+            mobile drawer support, and sidebar persistence behavior.
+          </p>
+
+          <h3>5.6 Rename and Delete</h3>
+          <p>
+            Each session received a three-dot menu with rename and delete actions, making the
+            saved-chat experience feel closer to ChatGPT or Gemini-style interfaces.
+          </p>
+
+          <h3>5.7 Navigation Cleanup</h3>
+          <p>
+            The top header and sidebar alignment were refined, the first-prompt experience was
+            simplified so the user’s message truly starts the conversation, and the prompt flow
+            was made more minimalistic and professional.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>6. Persistence and Session Management</h2>
+          <h3>6.1 Local Persistence</h3>
+          <p>
+            The project originally used SQLite locally to store sessions and messages. This gave
+            the application persistent saved chats without requiring a full database service during
+            development.
+          </p>
+
+          <h3>6.2 Production Persistence</h3>
+          <p>
+            For deployment, the persistence layer was upgraded to support both SQLite and Postgres.
+            Local development continues to use SQLite, while Render production uses Postgres through
+            <code>DATABASE_URL</code>.
+          </p>
+
+          <h3>6.3 Privacy Problem and Fix</h3>
+          <p>
+            Once the site became public, all visitors could see the same saved chats. This was a
+            critical privacy issue and required a server-side fix.
+          </p>
+          <p>The final solution introduced:</p>
+          <ul>
+            <li>an anonymous secure browser cookie per visitor</li>
+            <li><code>owner_id</code> tracking on sessions</li>
+            <li>ownership filtering for session list, load, rename, and delete</li>
+          </ul>
+          <p>
+            The result is browser-scoped privacy: different visitors no longer see each other’s
+            chat histories, while the same browser still retains its own saved sessions.
+          </p>
+        </section>
+      </section>
+
+      <section class="page page-break">
+        <section class="section">
+          <h2>7. Deployment Journey</h2>
+          <h3>7.1 Git and GitHub</h3>
+          <p>
+            The project was initialized as a Git repository and published to GitHub so the codebase
+            could be versioned, pushed incrementally, and deployed through Render.
+          </p>
+
+          <h3>7.2 Why Render Was Chosen</h3>
+          <p>
+            Render was selected over Vercel because the backend is a normal Flask web service with
+            SSE streaming and persistent database needs. This architecture maps naturally to
+            Render’s web service model and managed Postgres support.
+          </p>
+
+          <h3>7.3 Render Blueprint</h3>
+          <p>
+            Deployment was automated through <code>render.yaml</code>, which provisions the Flask
+            backend service, the static frontend service, and the Render Postgres database.
+          </p>
+          <p>It also auto-wires:</p>
+          <ul>
+            <li>frontend API URL from the backend</li>
+            <li>backend CORS origin from the frontend</li>
+            <li>backend database connection from Postgres</li>
+          </ul>
+
+          <h3>7.4 Live Deployment</h3>
+          <p>The final system was successfully deployed publicly with:</p>
+          <ul>
+            <li>frontend static site on Render</li>
+            <li>backend Flask API on Render</li>
+            <li>production Postgres database on Render</li>
+          </ul>
+
+          <div class="callout">
+            The deployment phase also surfaced real-world issues such as API root 404 confusion,
+            CORS setup, Render file-system limitations, and the need to move production persistence
+            off local SQLite.
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>8. Major Problems Encountered and How They Were Solved</h2>
+          <article class="issue-card">
+            <h4>8.1 PowerShell Execution Policy</h4>
+            <p><span class="label">Problem:</span> PowerShell blocked virtual environment activation and <code>npm</code> script execution.</p>
+            <p><span class="label">Solution:</span> Used direct <code>.venv\Scripts\python</code> and <code>npm.cmd</code> commands instead of relying on shell activation.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.2 Python Dependency Compatibility</h4>
+            <p><span class="label">Problem:</span> Older transcript API versions did not support the installed Python version.</p>
+            <p><span class="label">Solution:</span> Upgraded to a compatible <code>youtube-transcript-api</code> release.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.3 YouTube Search Breakage</h4>
+            <p><span class="label">Problem:</span> <code>youtube-search-python</code> broke because of an <code>httpx</code> compatibility problem.</p>
+            <p><span class="label">Solution:</span> Pinned a compatible <code>httpx</code> version.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.4 Gemini Model Availability</h4>
+            <p><span class="label">Problem:</span> Older configured model names were unavailable for the SDK/API path.</p>
+            <p><span class="label">Solution:</span> Added model fallback logic and updated default model candidates.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.5 Function Calling Configuration Error</h4>
+            <p><span class="label">Problem:</span> Gemini rejected an invalid tool configuration involving allowed function names and mode alignment.</p>
+            <p><span class="label">Solution:</span> Corrected tool-calling configuration to match SDK expectations.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.6 Public Chat Leakage</h4>
+            <p><span class="label">Problem:</span> Different visitors could see the same saved chats after deployment.</p>
+            <p><span class="label">Solution:</span> Added cookie-based viewer ownership and server-side filtering by <code>owner_id</code>.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.7 Generic Shopping Answers</h4>
+            <p><span class="label">Problem:</span> Prompts like <code>watches under 5000</code> produced broad brand-level recommendations.</p>
+            <p><span class="label">Solution:</span> Strengthened prompt policy, improved shopping heuristics, and encouraged clarification for ambiguous categories.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.8 Slow Responses</h4>
+            <p><span class="label">Problem:</span> Research prompts felt slow because of cold starts, multiple Gemini calls, and large transcript payloads.</p>
+            <p><span class="label">Solution:</span> Introduced hybrid fast-path routing, transcript optimization, candidate tuning, and a short-lived research cache.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.9 Vague Auto-Titles</h4>
+            <p><span class="label">Problem:</span> Chat titles were too generic.</p>
+            <p><span class="label">Solution:</span> Improved title heuristics, better title prompts, comparison-aware titles, and a single smart update after the first answer.</p>
+          </article>
+
+          <article class="issue-card">
+            <h4>8.10 Gemini Free-Tier Quota Limits</h4>
+            <p><span class="label">Problem:</span> Public usage quickly exhausted Gemini free-tier quota.</p>
+            <p><span class="label">Solution:</span> Added model fallbacks, quota-aware behavior, and made the request flow more efficient. This remains an external free-tier limitation.</p>
+          </article>
+        </section>
+      </section>
+
+      <section class="page page-break">
+        <section class="section">
+          <h2>9. Final Feature Set</h2>
+          <table class="feature-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Final Delivered Features</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Core AI</td>
+                <td>Conversational shopping assistant, Gemini synthesis, transcript-backed reasoning, follow-up support, India-focused recommendations</td>
+              </tr>
+              <tr>
+                <td>YouTube Research</td>
+                <td>Search without official YouTube Data API keys, transcript fallback retrieval, source deduplication, parallel extraction</td>
+              </tr>
+              <tr>
+                <td>Streaming UX</td>
+                <td>SSE streaming, live status text, chunk-by-chunk rendering, source chips</td>
+              </tr>
+              <tr>
+                <td>Saved Chats</td>
+                <td>Session list, session load, rename, delete, auto-titling, session persistence</td>
+              </tr>
+              <tr>
+                <td>Privacy</td>
+                <td>Browser-scoped chat isolation, no shared public chat history</td>
+              </tr>
+              <tr>
+                <td>UI</td>
+                <td>Dark theme, collapsible sidebar, responsive layout, centered landing page, prompt composer, home navigation</td>
+              </tr>
+              <tr>
+                <td>Deployment</td>
+                <td>GitHub repo, Render frontend, Render backend, Render Postgres, blueprint-based deployment</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section">
+          <h2>10. How the Final System Works End to End</h2>
+          <ol>
+            <li>A user opens the website.</li>
+            <li>The browser receives or reuses a secure anonymous viewer cookie.</li>
+            <li>The user submits a shopping prompt.</li>
+            <li>The frontend sends the prompt, history, and session ID to the backend.</li>
+            <li>The backend determines whether fresh YouTube research is needed.</li>
+            <li>If research is required, YouTube queries are derived and candidate videos are fetched.</li>
+            <li>Video transcripts are extracted in parallel using <code>ThreadPoolExecutor</code>.</li>
+            <li>Gemini synthesizes the answer from research context and existing chat history.</li>
+            <li>Flask streams status events, sources, and text chunks back over SSE.</li>
+            <li>The frontend renders the answer live and displays source chips.</li>
+            <li>The conversation is saved into the database.</li>
+            <li>After the first assistant answer, the system generates one smart session title in the background.</li>
+            <li>The saved chat remains visible only to that browser owner.</li>
+          </ol>
+        </section>
+
+        <section class="section">
+          <h2>11. Final Deployment State</h2>
+          <p>The final deployed system consists of:</p>
+          <ul>
+            <li>GitHub-hosted source repository</li>
+            <li>Render static frontend</li>
+            <li>Render Flask backend API</li>
+            <li>Render Postgres database</li>
+          </ul>
+          <p>
+            The site is publicly accessible while still preserving browser-private chat history.
+            Backend-only changes can redeploy independently from frontend changes depending on which
+            service was modified.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>12. Known Limitations</h2>
+          <ul>
+            <li>No account-based cross-device sync because authentication was intentionally excluded.</li>
+            <li>Gemini free-tier quota can be exceeded on a public deployment.</li>
+            <li>Free Render can still introduce cold starts for the backend.</li>
+            <li>The evidence layer intentionally focuses on YouTube reviews only.</li>
+            <li>Retailer pricing is approximate rather than live-scraped.</li>
+          </ul>
+        </section>
+
+        <section class="section">
+          <h2>13. Key Engineering Decisions</h2>
+          <ol>
+            <li>Use YouTube reviews as the evidence layer instead of retailer APIs.</li>
+            <li>Use parallel transcript extraction for practical latency.</li>
+            <li>Use SSE for a modern live-generation user experience.</li>
+            <li>Keep the backend modular across routing, agent logic, retrieval, and storage.</li>
+            <li>Move production persistence from SQLite to Postgres.</li>
+            <li>Use anonymous browser ownership instead of authentication.</li>
+            <li>Adopt a hybrid research-routing approach to balance intelligence and speed.</li>
+          </ol>
+        </section>
+      </section>
+
+      <section class="page page-break">
+        <section class="section">
+          <h2>14. Final Outcome</h2>
+          <p>
+            The final result is a deployable, modular, full-stack AI shopping website that
+            behaves like a modern conversational assistant. It uses real YouTube review evidence,
+            streams responses in real time, saves conversations for later use, preserves privacy
+            per browser, supports follow-up shopping queries, and is deployed publicly on Render.
+          </p>
+          <p>
+            The project went beyond a basic prototype and matured into a practical AI product
+            through repeated refinement across frontend UX, backend orchestration, LLM behavior,
+            evidence retrieval, persistence, privacy, and deployment engineering.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>15. Closing Summary</h2>
+          <p>
+            This project began as a requirement to build a conversational AI personal shopper and
+            evolved into a production-style full-stack web application. The final system combines a
+            React frontend, Flask backend, Gemini-powered synthesis, YouTube transcript-based research,
+            SSE streaming, saved chat sessions, rename/delete session management, browser-private chat
+            visibility, auto-titling, GitHub version control, and Render deployment backed by Postgres.
+          </p>
+          <p>
+            Along the way, the project solved real engineering problems such as dependency mismatches,
+            model availability issues, public chat leakage, generic product suggestions, latency, UI
+            clutter, deployment friction, and free-tier LLM quota constraints. The finished result is a
+            polished AI shopping assistant with strong end-to-end engineering depth.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>Appendix A. Project Screens</h2>
+          <div class="screens">
+            <article class="shot">
+              <img src="./prompt.png" alt="Prompt composer and landing view" />
+              <p>Landing-state prompt interface used to start a new shopping conversation.</p>
+            </article>
+            <article class="shot">
+              <img src="./webiste.png" alt="Conversation workspace and sidebar" />
+              <p>Live conversation workspace with saved chats, active thread, and streaming assistant layout.</p>
+            </article>
+          </div>
+        </section>
+
+        <div class="footer-note">
+          File prepared for submission and print export. Recommended export path:
+          <code>docs/PROJECT_COMPLETE_DOCUMENTATION_SUBMISSION.pdf</code>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
