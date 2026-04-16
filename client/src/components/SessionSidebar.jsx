@@ -264,14 +264,15 @@ export default function SessionSidebar({
                   return (
                     <div
                       key={session.id}
-                      className={`group relative rounded-[22px] border transition ${
+                      className={`group relative rounded-[22px] border transition cursor-pointer ${
                         isActive
                           ? "border-white/20 bg-white/[0.08] shadow-[0_16px_30px_rgba(0,0,0,0.18)]"
                           : "border-white/8 bg-white/[0.03] hover:border-white/15 hover:bg-white/[0.05]"
                       }`}
+                      onClick={() => onSelectSession(session.id)}
                     >
                       {isRenaming ? (
-                        <div className="px-4 py-4">
+                        <div className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                           <input
                             autoFocus
                             className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none transition focus:border-white/20"
@@ -305,12 +306,7 @@ export default function SessionSidebar({
                         </div>
                       ) : (
                         <>
-                          <button
-                            className="w-full px-4 py-3 pr-14 text-left"
-                            disabled={isBusy}
-                            onClick={() => onSelectSession(session.id)}
-                            type="button"
-                          >
+                          <div className="w-full px-4 py-3 pr-14 text-left">
                             <div className="flex items-start justify-between gap-3">
                               <p className="line-clamp-2 text-sm font-medium text-white">
                                 {session.title || "New chat"}
@@ -323,18 +319,18 @@ export default function SessionSidebar({
                             <p className="mt-2 line-clamp-2 text-xs leading-5 text-stone-500">
                               {session.last_message_preview || "Waiting for the first reply..."}
                             </p>
-
-                          </button>
+                          </div>
 
                           <button
                             aria-label={`Open actions for ${session.title || "chat"}`}
                             className="absolute right-3 top-3 inline-flex rounded-full border border-white/10 p-2 text-stone-500 transition hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
                             disabled={isBusy}
-                            onClick={() =>
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setMenuSessionId((current) =>
                                 current === session.id ? null : session.id
-                              )
-                            }
+                              );
+                            }}
                             type="button"
                           >
                             <DotsIcon />

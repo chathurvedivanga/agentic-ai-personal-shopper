@@ -386,8 +386,14 @@ export default function App() {
       return;
     }
 
-    if (sessionId === activeSessionId || isSubmitting) {
+    if (sessionId === activeSessionId) {
       return;
+    }
+
+    if (isSubmitting) {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      setIsSubmitting(false);
     }
 
     void loadSession(sessionId);
