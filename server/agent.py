@@ -63,7 +63,7 @@ OPENROUTER_APP_TITLE = "AI Shopping Partner"
 
 LAYER1_AGENTS = {
     "critic": {
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "model": "llama-3.1-70b-versatile",
         "prompt": (
             "You are a critical product reviewer. Read the transcript and query. "
             "In one short paragraph, highlight only the major flaws, missing features, "
@@ -71,7 +71,7 @@ LAYER1_AGENTS = {
         ),
     },
     "summarizer": {
-        "model": "qwen/qwen3-32b",
+        "model": "gemma2-9b-it",
         "prompt": (
             "You are a product summarizer. Read the transcript and query. "
             "Output a concise bulleted list of the top 3 best features mentioned. "
@@ -80,7 +80,7 @@ LAYER1_AGENTS = {
         ),
     },
     "extractor": {
-        "model": "openai/gpt-oss-20b",
+        "model": "mixtral-8x7b-32768",
         "prompt": (
             "You are a strict data extractor. Read the transcript, query, and video metadata. "
             "Extract EVERY technical specification, brand, model, and hard fact mentioned. "
