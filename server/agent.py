@@ -56,12 +56,13 @@ MAX_HISTORY_MESSAGES = 10
 TOOL_NAME = "fetch_youtube_reviews"
 DIRECT_RESPONSE_CHUNK_SIZE = 220
 RESEARCH_CACHE_TTL_SECONDS = 30 * 60
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_TIMEOUT_SECONDS = 10.0
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+#
+GROQ_TIMEOUT_SECONDS = 10.0
 OPENROUTER_APP_TITLE = "AI Shopping Partner"
 LAYER1_AGENTS = {
     "critic": {
-        "model": "meta-llama/llama-3.2-3b-instruct:free",
+        "model": "llama-3.1-8b-instant",
         "prompt": (
             "You are a critical product reviewer. Read the transcript and query. "
             "In one short paragraph, highlight only the major flaws, missing features, "
@@ -69,18 +70,21 @@ LAYER1_AGENTS = {
         ),
     },
     "summarizer": {
-        "model": "google/gemma-3-4b-it:free",
+        "model": "llama-3.1-8b-instant",
         "prompt": (
             "You are a product summarizer. Read the transcript and query. "
             "Output a concise bulleted list of the top 3 best features mentioned."
         ),
     },
     "extractor": {
-        "model": "qwen/qwen3-4b:free",
+        "model": "llama-3.1-8b-instant",
         "prompt": (
-            "You are a strict data extractor. Read the transcript. Output ONLY a valid "
-            "JSON object containing objective specifications (e.g., 'price', "
-            "'battery_life', 'materials'). No markdown formatting."
+            "You are a strict data extractor. Read the transcript and extract EVERY technical "
+            "specification or hard fact mentioned (such as processor, RAM, screen size, "
+            "price, weight, camera specs, battery, etc.).\n"
+            "Output ONLY a valid JSON object where the keys are the name of the specification "
+            "and the values are the extracted data. Do not include markdown formatting. "
+            "Keep values concise. Do not guess; only include what is explicitly stated."
         ),
     },
 }
@@ -328,7 +332,7 @@ Return only the title.
             response = model.generate_content(
                 prompt,
                 generation_config={
-                    "temperature": 0.2,
+                    "temperature": 0.0,
                     "max_output_tokens": 18,
                 },
             )
@@ -565,7 +569,7 @@ Return only the title.
             response = model.generate_content(
                 prompt,
                 generation_config={
-                    "temperature": 0.1,
+                    "temperature": 0.0,
                     "max_output_tokens": 20,
                 },
             )
@@ -762,17 +766,17 @@ def _build_history_research_payload(
     }
 
 
-async def _call_openrouter_agent(
+async def _call_groq_agent(
     client: httpx.AsyncClient,
     agent_name: str,
     agent_config: Dict[str, str],
     user_payload: str,
 ) -> str:
-    api_key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    api_key = (os.getenv("GROQ_API_KEY") or "").strip()
     if not api_key:
         return (
-            "OpenRouter API key is not configured, so this Layer 1 agent could not run. "
-            "Add OPENROUTER_API_KEY in Render and server/.env to enable the full MoA debate."
+            "Groq API key is not configured, so this Layer 1 agent could not run. "
+            "Add GROQ_API_KEY in Render and server/.env to enable the full MoA debate."
         )
 
     headers = {
@@ -790,12 +794,12 @@ async def _call_openrouter_agent(
             {"role": "system", "content": agent_config["prompt"]},
             {"role": "user", "content": user_payload},
         ],
-        "temperature": 0.2 if agent_name == "extractor" else 0.35,
+        "temperature": 0.0,
         "max_tokens": 700,
     }
 
     try:
-        response = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
+        response = await client.post(GROQ_API_URL, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
         return (
@@ -806,12 +810,12 @@ async def _call_openrouter_agent(
             or f"{agent_name.title()} returned an empty response."
         )
     except httpx.TimeoutException:
-        return f"{agent_name.title()} timed out after {int(OPENROUTER_TIMEOUT_SECONDS)} seconds."
+        return f"{agent_name.title()} timed out after {int(GROQ_TIMEOUT_SECONDS)} seconds."
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code
-        return f"{agent_name.title()} failed with OpenRouter HTTP {status_code}."
+        return f"{agent_name.title()} failed with Groq HTTP {status_code}."
     except Exception as exc:
-        return f"{agent_name.title()} failed: {str(exc) or 'Unknown OpenRouter error.'}"
+        return f"{agent_name.title()} failed: {str(exc) or 'Unknown Groq error.'}"
 
 
 def _strip_json_markdown(raw_text: str) -> str:
@@ -847,31 +851,28 @@ async def _run_layer1_agents(
     history: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     user_payload = _build_layer1_user_payload(query, research_payload, history)
-    timeout = httpx.Timeout(OPENROUTER_TIMEOUT_SECONDS)
+    timeout = httpx.Timeout(GROQ_TIMEOUT_SECONDS)
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        critic_task = _call_openrouter_agent(
+        critic = await _call_groq_agent(
             client,
             "critic",
             LAYER1_AGENTS["critic"],
             user_payload,
         )
-        summarizer_task = _call_openrouter_agent(
+        await asyncio.sleep(1.0)
+        summarizer = await _call_groq_agent(
             client,
             "summarizer",
             LAYER1_AGENTS["summarizer"],
             user_payload,
         )
-        extractor_task = _call_openrouter_agent(
+        await asyncio.sleep(1.0)
+        extractor_raw = await _call_groq_agent(
             client,
             "extractor",
             LAYER1_AGENTS["extractor"],
             user_payload,
-        )
-        critic, summarizer, extractor_raw = await asyncio.gather(
-            critic_task,
-            summarizer_task,
-            extractor_task,
         )
 
     return {
@@ -988,7 +989,7 @@ async def run_moa_shopper_reply(
     """Run the two-layer Mixture-of-Agents shopping pipeline.
 
     Layer 0 gathers YouTube review evidence with parallel transcript extraction.
-    Layer 1 concurrently asks three specialized OpenRouter models to critique,
+    Layer 1 concurrently asks three specialized Groq models to critique,
     summarize, and extract objective specs from that evidence.
     Layer 2 asks Gemini to resolve the agent outputs into one polished answer.
     """
